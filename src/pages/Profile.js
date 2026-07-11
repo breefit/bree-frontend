@@ -26,15 +26,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const normalizeStatus = (status) => {
-  if (!status) return "pending";
+  if (!status) return "pending_payment";
   const lower = String(status).toLowerCase();
-  if (
-    ["processing", "shipped", "out_for_delivery", "dispatched"].includes(lower)
-  )
-    return "dispatched";
-  if (["pending", "confirmed", "delivered", "cancelled"].includes(lower))
-    return lower;
-  return lower;
+  const aliases = {
+    pending: "pending_payment",
+    confirmed: "paid",
+    dispatched: "shipped",
+    shipped: "shipped",
+    out_for_delivery: "out_for_delivery",
+    delivered: "delivered",
+    cancelled: "cancelled",
+    returned: "returned",
+  };
+  return aliases[lower] || lower;
 };
 
 const TABS = [
@@ -169,6 +173,11 @@ function ProfileTab({ user }) {
           <p className="text-bree-text-secondary text-sm">
             {profileData.email}
           </p>
+          {profileData.customer_number && (
+            <p className="text-bree-primary text-sm font-medium mt-1">
+              Customer No. {profileData.customer_number}
+            </p>
+          )}
         </div>
       </div>
 
@@ -230,6 +239,10 @@ function ProfileTab({ user }) {
           {[
             { label: "Name", value: profileData.name },
             { label: "Email", value: profileData.email },
+            {
+              label: "Customer No.",
+              value: profileData.customer_number || "—",
+            },
             { label: "Phone", value: profileData.phone || "—" },
           ].map(({ label, value }) => (
             <div
@@ -665,16 +678,19 @@ function OrdersTab() {
                     className={`text-xs px-3 py-1 rounded-full font-medium ${
                       orderStatus === "delivered"
                         ? "bg-green-100 text-green-700"
-                        : orderStatus === "dispatched"
+                        : orderStatus === "shipped" ||
+                            orderStatus === "out_for_delivery"
                           ? "bg-emerald-100 text-emerald-700"
-                          : orderStatus === "confirmed"
+                          : orderStatus === "paid"
                             ? "bg-sky-100 text-sky-700"
                             : orderStatus === "cancelled"
                               ? "bg-red-100 text-red-600"
-                              : "bg-gray-100 text-gray-600"
+                              : orderStatus === "returned"
+                                ? "bg-stone-100 text-stone-700"
+                                : "bg-amber-100 text-amber-700"
                     }`}
                   >
-                    {orderStatus}
+                    {orderStatus.replace(/_/g, " ")}
                   </span>
                 );
               })()}

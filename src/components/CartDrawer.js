@@ -102,11 +102,8 @@ const CartDrawer = ({ isOpen, onClose }) => {
         setTimeout(() => {
           addToCart(
             {
-              id: recommendedProduct.id,
-              name: recommendedProduct.name,
-              price: recommendedProduct.price,
-              image: recommendedProduct.image,
-              quantity: recommendedProduct.quantity,
+              ...recommendedProduct,
+              quantity: recommendedProduct.quantity ?? 1,
               mrp: recommendedProduct.mrp || recommendedProduct.price,
             },
             1,
@@ -130,6 +127,31 @@ const CartDrawer = ({ isOpen, onClose }) => {
 
     return savings > 0 ? Math.round(savings) : null;
   }, []);
+
+  const getShippingDisplay = (item) => {
+    const isFree =
+      item?.is_free_shipping === true ||
+      item?.is_free_shipping === 1 ||
+      item?.isFreeShipping === true ||
+      item?.isFreeShipping === 1;
+
+    if (isFree) {
+      return "✓ Free Shipping";
+    }
+
+    const hasCharge =
+      item?.shipping_charge != null || item?.shippingCharge != null;
+
+    if (!hasCharge) {
+      return "Shipping information unavailable";
+    }
+
+    const charge = Number(item?.shipping_charge ?? item?.shippingCharge ?? 0);
+
+    return Number.isFinite(charge) && charge >= 0
+      ? `Shipping ₹${charge.toLocaleString("en-IN")}`
+      : "Shipping information unavailable";
+  };
 
   const getPricePerUnit = useCallback((product) => {
     if (!product.quantity || product.quantity <= 0)
@@ -271,6 +293,10 @@ const CartDrawer = ({ isOpen, onClose }) => {
                               Unavailable
                             </span>
                           )}
+                        </div>
+
+                        <div className="mt-1 text-xs text-bree-text-secondary">
+                          {getShippingDisplay(item)}
                         </div>
 
                         {/* Quantity Controls */}

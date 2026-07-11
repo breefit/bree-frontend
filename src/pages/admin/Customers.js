@@ -71,9 +71,12 @@ const Customers = () => {
   // SEARCH LOGIC
   const filteredCustomers = useMemo(() => {
     return customers.filter((customer) => {
+      const query = searchQuery.toLowerCase();
       return (
-        customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        customer.phone.includes(searchQuery)
+        customer.name?.toLowerCase().includes(query) ||
+        customer.email?.toLowerCase().includes(query) ||
+        customer.phone?.includes(searchQuery) ||
+        customer.customer_number?.toLowerCase().includes(query)
       );
     });
   }, [customers, searchQuery]);
@@ -116,7 +119,7 @@ const Customers = () => {
                     handleSearch();
                   }
                 }}
-                placeholder="Search by customer name or mobile number..."
+                placeholder="Search by customer number, name, email or phone..."
                 className="pl-11 pr-11 h-11 rounded-2xl border-bree-border bg-white"
               />
 
@@ -258,7 +261,7 @@ const Customers = () => {
                       </div>
 
                       <p className="text-sm text-bree-text-secondary mt-1">
-                        Customer ID #{customer.id}
+                        Customer No. {customer.customer_number || customer.id}
                       </p>
                     </div>
                   </div>

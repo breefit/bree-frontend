@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
 } from "react";
 
 const CartContext = createContext();
@@ -32,9 +33,11 @@ export const CartProvider = ({ children }) => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [lastSync, setLastSync] = useState(null);
   const [pendingChanges, setPendingChanges] = useState([]);
+  const cartItemsRef = useRef(cartItems);
 
   // Persist cart to localStorage whenever it changes
   useEffect(() => {
+    cartItemsRef.current = cartItems;
     try {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartItems));
     } catch {
@@ -48,7 +51,7 @@ export const CartProvider = ({ children }) => {
       if (existingItem) {
         return prev.map((item) =>
           item.id === product.id
-            ? { ...item, quantity: item.quantity + quantity }
+            ? { ...item, ...product, quantity: item.quantity + quantity }
             : item,
         );
       }
@@ -79,11 +82,12 @@ export const CartProvider = ({ children }) => {
 
   // Sync cart with backend to validate prices/stock/availability
   const syncCart = useCallback(async () => {
+    const currentCartItems = cartItemsRef.current || [];
+
     try {
-      if (!cartItems || !cartItems.length)
-        return { anyChange: false, items: [] };
+      if (!currentCartItems.length) return { anyChange: false, items: [] };
       const payload = {
-        items: cartItems.map((it) => ({
+        items: currentCartItems.map((it) => ({
           id: it.id,
           price: it.price,
           quantity: it.quantity,
@@ -95,7 +99,7 @@ export const CartProvider = ({ children }) => {
       if (data && Array.isArray(data.items)) {
         // Apply updates where price changed or availability changed
         let updated = false;
-        const newCart = cartItems.map((it) => {
+        const newCart = currentCartItems.map((it) => {
           const found = data.items.find((i) => i.id === it.id);
           if (!found) return it;
           let updatedItem = { ...it };
@@ -114,6 +118,29 @@ export const CartProvider = ({ children }) => {
               _available: found.available,
               _stock: found.stock,
               _requestedQty: found.requestedQty,
+            };
+            updated = true;
+          }
+          if (found.is_free_shipping !== undefined) {
+            updatedItem = {
+              ...updatedItem,
+              is_free_shipping: found.is_free_shipping,
+            };
+            updated = true;
+          }
+          if (found.shipping_charge !== undefined) {
+            updatedItem = {
+              ...updatedItem,
+              shipping_charge: found.shipping_charge,
+              shippingCharge: found.shipping_charge,
+            };
+            updated = true;
+          }
+          if (found.estimated_delivery !== undefined) {
+            updatedItem = {
+              ...updatedItem,
+              estimated_delivery: found.estimated_delivery,
+              estimatedDelivery: found.estimated_delivery,
             };
             updated = true;
           }
@@ -149,7 +176,7 @@ export const CartProvider = ({ children }) => {
       console.error("syncCart error:", err);
       return { anyChange: false, items: [] };
     }
-  }, [cartItems]);
+  }, []);
 
   // Refresh cart on page load
   useEffect(() => {
@@ -168,7 +195,27 @@ export const CartProvider = ({ children }) => {
     0,
   );
 
+  const cartShipping = cartItems.reduce((sum, item) => {
+    const isFreeShipping =
+      item.is_free_shipping === true ||
+      item.is_free_shipping === 1 ||
+      item.isFreeShipping === true ||
+      item.isFreeShipping === 1 ||
+      item.free_shipping === true ||
+      item.free_shipping === 1;
+
+    if (isFreeShipping) return sum;
+
+    const shippingCharge = Number(
+      item.shipping_charge ?? item.shippingCharge ?? 0,
+    );
+    return sum + (Number.isFinite(shippingCharge) ? shippingCharge : 0);
+  }, 0);
+
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  // console.log("[CartContext] cartItems", cartItems);
+  // console.log("[CartContext] cartShipping", cartShipping);
 
   return (
     <CartContext.Provider
@@ -180,6 +227,7 @@ export const CartProvider = ({ children }) => {
         clearCart,
         cartTotal,
         cartCount,
+        cartShipping,
         isCartOpen,
         setIsCartOpen,
         syncCart,

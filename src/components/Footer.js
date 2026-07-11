@@ -9,6 +9,25 @@ import {
 } from "lucide-react";
 import DevelopedByStaffArc from "./DevelopedByStaffArc";
 
+const supportLinks = [
+  {
+    label: "Shipping",
+    path: "/support#shipping",
+  },
+  {
+    label: "Returns",
+    path: "/support#returns",
+  },
+  {
+    label: "Privacy Policy",
+    path: "/support#privacy",
+  },
+  {
+    label: "Terms & Conditions",
+    path: "/support#terms",
+  },
+];
+
 const LOGO_URL =
   "https://res.cloudinary.com/dxfs7qyzm/image/upload/v1779338649/Bree-logo_xgn0eh.png";
 
@@ -90,16 +109,18 @@ const Footer = () => {
           {/* Support */}
           <div>
             <h4 className="font-outfit font-semibold text-lg mb-4">Support</h4>
+
             <ul className="space-y-3">
-              {["FAQs", "Shipping", "Returns", "Privacy Policy", "Terms"].map(
-                (item) => (
-                  <li key={item}>
-                    <span className="text-white/70 hover:text-white transition-colors text-sm cursor-pointer">
-                      {item}
-                    </span>
-                  </li>
-                ),
-              )}
+              {supportLinks.map((link) => (
+                <li key={link.label}>
+                  <Link
+                    to={link.path}
+                    className="text-white/70 hover:text-white transition-colors text-sm"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
 
@@ -111,9 +132,7 @@ const Footer = () => {
             <ul className="space-y-3">
               <li className="flex items-start gap-3">
                 <Mail className="w-5 h-5 text-bree-accent mt-0.5" />
-                <span className="text-white/70 text-sm">
-                  care@breefit.in
-                </span>
+                <span className="text-white/70 text-sm">care@breefit.in</span>
               </li>
               <li className="flex items-start gap-3">
                 <Phone className="w-5 h-5 text-bree-accent mt-0.5" />

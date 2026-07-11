@@ -320,7 +320,7 @@ const BulkOrders = () => {
                       Company
                     </th>
                     <th className="px-4 py-4 text-left text-sm font-semibold text-bree-text-primary">
-                      Contact
+                      Name
                     </th>
                     <th className="px-4 py-4 text-left text-sm font-semibold text-bree-text-primary">
                       Email

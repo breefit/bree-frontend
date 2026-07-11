@@ -44,7 +44,8 @@ const Products = () => {
     setLoading(true);
     try {
       const response = await axios.get("/api/admin/products?limit=100");
-      setProducts(response.data.products || []);
+      const productsFromApi = response.data.products || [];
+      setProducts(productsFromApi);
     } catch (error) {
       console.error("Failed to load products", error);
       toast.error(getApiErrorMessage(error));
@@ -124,6 +125,18 @@ const Products = () => {
         formData.append(
           "show_recommendations",
           data.show_recommendations ? "true" : "false",
+        );
+        formData.append(
+          "is_free_shipping",
+          data.is_free_shipping ? "true" : "false",
+        );
+        formData.append(
+          "shipping_charge",
+          data.is_free_shipping ? "0" : String(data.shipping_charge || 0),
+        );
+        formData.append(
+          "estimated_delivery",
+          data.estimated_delivery || "3–7 Business Days",
         );
         if (data.displayOrder !== undefined && data.displayOrder !== "") {
           formData.append("displayOrder", data.displayOrder.toString());

@@ -28,12 +28,41 @@ const ProductCard = ({ product, index = 0 }) => {
 
   const isOutOfStock = product.status === "Out Of Stock";
 
+  const getShippingDisplay = (productItem) => {
+    const isFree =
+      productItem?.is_free_shipping === true ||
+      productItem?.is_free_shipping === 1 ||
+      productItem?.isFreeShipping === true ||
+      productItem?.isFreeShipping === 1;
+
+    if (isFree) {
+      return "✓ Free Shipping";
+    }
+
+    const hasCharge =
+      productItem?.shipping_charge != null ||
+      productItem?.shippingCharge != null;
+
+    if (!hasCharge) {
+      return "Shipping information unavailable";
+    }
+
+    const charge = Number(
+      productItem?.shipping_charge ?? productItem?.shippingCharge ?? 0,
+    );
+
+    return Number.isFinite(charge) && charge >= 0
+      ? `Shipping ₹${charge.toLocaleString("en-IN")}`
+      : "Shipping information unavailable";
+  };
+
+  const shippingDisplay = getShippingDisplay(product);
+
   // Subscription status is determined solely by the database field.
   // Supports both snake_case (is_subscription) and camelCase (is_subscription)
   // response shapes, and accepts both boolean true and integer 1.
   const isSubscriptionProduct =
-    product.is_subscription === 1 ||
-    product.is_subscription === true;
+    product.is_subscription === 1 || product.is_subscription === true;
 
   const handleAddToCart = () => {
     if (isOutOfStock) return;
@@ -181,6 +210,10 @@ const ProductCard = ({ product, index = 0 }) => {
             <span className="bg-red-50 text-red-500 text-xs md:text-sm font-semibold px-3 py-1 rounded-full border border-red-100">
               {discountPercentage}% OFF
             </span>
+          </div>
+
+          <div className="mt-3 text-sm font-medium text-bree-text-secondary">
+            {shippingDisplay}
           </div>
 
           {/* Per Bottle */}

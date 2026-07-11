@@ -13,6 +13,10 @@ import {
   ChevronDown,
   SlidersHorizontal,
   MapPin,
+  Truck,
+  Download,
+  Ban,
+  PackageCheck,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,30 +30,31 @@ const AUTH = () => ({ withCredentials: true });
 const PAGE_SIZE = 10;
 
 const normalizeStatus = (status) => {
-  if (!status) return "pending";
+  if (!status) return "pending_payment";
   const lower = String(status).toLowerCase();
-  if (
-    [
-      "pending",
-      "confirmed",
-      "processing",
-      "dispatched",
-      "delivered",
-      "cancelled",
-    ].includes(lower)
-  ) {
-    return lower;
-  }
-  if (["shipped", "out_for_delivery"].includes(lower)) return "dispatched";
-  return lower;
+  const aliases = {
+    pending: "pending_payment",
+    confirmed: "paid",
+    dispatched: "shipped",
+    shipped: "shipped",
+    out_for_delivery: "out_for_delivery",
+    delivered: "delivered",
+    cancelled: "cancelled",
+    returned: "returned",
+  };
+  return aliases[lower] || lower;
 };
 
 const ORDER_STATUSES = [
-  "pending",
-  "confirmed",
+  "pending_payment",
+  "paid",
   "processing",
-  "dispatched",
+  "ready_to_ship",
+  "shipped",
+  "out_for_delivery",
   "delivered",
+  "cancelled",
+  "returned",
 ];
 
 const DATE_RANGES = [
@@ -61,21 +66,27 @@ const DATE_RANGES = [
 ];
 
 const STATUS_COLORS = {
-  pending: "bg-yellow-100 text-yellow-700 border-yellow-200",
-  confirmed: "bg-sky-100 text-sky-700 border-sky-200",
-  processing: "bg-indigo-100 text-indigo-700 border-indigo-200",
-  dispatched: "bg-purple-100 text-purple-700 border-purple-200",
+  pending_payment: "bg-amber-100 text-amber-700 border-amber-200",
+  paid: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  processing: "bg-sky-100 text-sky-700 border-sky-200",
+  ready_to_ship: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  shipped: "bg-purple-100 text-purple-700 border-purple-200",
+  out_for_delivery: "bg-orange-100 text-orange-700 border-orange-200",
   delivered: "bg-green-100 text-green-700 border-green-200",
   cancelled: "bg-red-100 text-red-500 border-red-200",
+  returned: "bg-stone-100 text-stone-700 border-stone-200",
 };
 
 const ORDER_TRANSITIONS = {
-  pending: ["pending", "confirmed"],
-  confirmed: ["confirmed", "processing"],
-  processing: ["processing", "dispatched"],
-  dispatched: ["dispatched", "delivered"],
-  delivered: ["delivered"],
+  pending_payment: ["pending_payment", "paid"],
+  paid: ["paid", "processing"],
+  processing: ["processing", "ready_to_ship"],
+  ready_to_ship: ["ready_to_ship", "shipped"],
+  shipped: ["shipped", "out_for_delivery"],
+  out_for_delivery: ["out_for_delivery", "delivered"],
+  delivered: ["delivered", "returned"],
   cancelled: ["cancelled"],
+  returned: ["returned"],
 };
 
 const PAYMENT_COLORS = {
@@ -207,15 +218,21 @@ function FilterDropdown({ label, value, options, onChange, colorMap }) {
                     ${
                       opt.value === "delivered"
                         ? "bg-green-500"
-                        : opt.value === "pending"
-                          ? "bg-yellow-400"
-                          : opt.value === "confirmed"
-                            ? "bg-sky-500"
-                            : opt.value === "dispatched"
-                              ? "bg-purple-700"
-                              : opt.value === "cancelled"
-                                ? "bg-red-500"
-                                : "bg-slate-300"
+                        : opt.value === "pending_payment"
+                          ? "bg-amber-400"
+                          : opt.value === "paid"
+                            ? "bg-emerald-500"
+                            : opt.value === "ready_to_ship"
+                              ? "bg-indigo-500"
+                              : opt.value === "shipped"
+                                ? "bg-purple-700"
+                                : opt.value === "out_for_delivery"
+                                  ? "bg-orange-500"
+                                  : opt.value === "cancelled"
+                                    ? "bg-red-500"
+                                    : opt.value === "returned"
+                                      ? "bg-stone-500"
+                                      : "bg-slate-300"
                     }`}
                   />
                 )}
@@ -233,30 +250,209 @@ function FilterDropdown({ label, value, options, onChange, colorMap }) {
 }
 
 /* ── order-detail modal ──────────────────────────────────────────────────── */
-const OrderModal = ({ order, onClose, onStatusChange }) => {
+const OrderModal = ({
+  order,
+  onClose,
+  onStatusChange,
+  onShipOrder,
+  onCancelShipment,
+  onSchedulePickup,
+}) => {
+  const [shippingLoading, setShippingLoading] = useState(false);
+
+  // ===== Modified =====
+  // Local state for the Delhivery tracking/label/cancel actions. Kept
+  // scoped to the modal since none of it needs to live in the parent
+  // orders list (aside from the cancel action, which does refresh the
+  // parent via onCancelShipment).
+  const [trackingData, setTrackingData] = useState(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [labelLoading, setLabelLoading] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  // ===== End Modified =====
+
+  // ===== Added: Schedule Pickup =====
+  const [pickupLoading, setPickupLoading] = useState(false);
+  // ===== End Added =====
+
   if (!order) return null;
 
   const orderStatus = normalizeStatus(order.order_status || order.status);
   const items = Array.isArray(order.items) ? order.items : [];
+  const shipmentAwb =
+    order.delhivery_awb || order.awbNumber || order.awb || null;
+  const shipmentTracking =
+    order.delhivery_tracking_number ||
+    order.trackingNumber ||
+    order.tracking_number ||
+    null;
+  const shipmentStatus =
+    orderStatus === "shipped"
+      ? "Shipped"
+      : orderStatus === "ready_to_ship"
+        ? "Ready to Ship"
+        : "Pending";
+
+  // ===== Added: Schedule Pickup =====
+  const pickupRequestId =
+    order.pickup_request_id || order.pickupRequestId || null;
+  const showSchedulePickupButton =
+    orderStatus === "shipped" && !pickupRequestId;
+  // ===== End Added =====
+
+  const handleShipOrder = async () => {
+    setShippingLoading(true);
+    try {
+      await onShipOrder(order.id);
+    } finally {
+      setShippingLoading(false);
+    }
+  };
+
+  // ===== Modified =====
+  // ── Delhivery: live tracking ────────────────────────────────────────────
+  const handleTrackShipment = async (awb) => {
+    if (!awb) return;
+    setTrackingLoading(true);
+    try {
+      const res = await axios.get(`/api/shipping/track/${awb}`, AUTH());
+      const tracking = res?.data?.tracking || res?.data || null;
+      setTrackingData(tracking);
+      toast.success("Tracking info updated");
+    } catch (err) {
+      const backendMessage =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        "Failed to fetch tracking info";
+      toast.error(backendMessage);
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
+  // ── Delhivery: shipping label download ──────────────────────────────────
+  const handleDownloadLabel = async (awb) => {
+    if (!awb) return;
+    setLabelLoading(true);
+    try {
+      const res = await axios.get(`/api/shipping/label/${awb}`, {
+        ...AUTH(),
+        responseType: "blob",
+      });
+      const contentType =
+        res?.headers?.["content-type"] ||
+        res?.headers?.["Content-Type"] ||
+        "application/pdf";
+      const blob =
+        res?.data instanceof Blob
+          ? res.data
+          : new Blob([res.data], { type: contentType });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `label-${awb}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
+      toast.success("Shipping label downloaded");
+    } catch (err) {
+      const backendMessage =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        "Failed to download shipping label";
+      toast.error(backendMessage);
+    } finally {
+      setLabelLoading(false);
+    }
+  };
+
+  // ── Delhivery: cancel shipment ───────────────────────────────────────────
+  const handleCancelClick = async () => {
+    if (!window.confirm("Are you sure you want to cancel this shipment?")) {
+      return;
+    }
+    setCancelLoading(true);
+    try {
+      await onCancelShipment(order.id);
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+  // ===== End Modified =====
+
+  // ===== Added: Schedule Pickup =====
+  // ── Delhivery: schedule pickup (mirrors handleShipOrder's pattern) ───────
+  const handleSchedulePickupClick = async () => {
+    setPickupLoading(true);
+    try {
+      await onSchedulePickup(order.id);
+    } finally {
+      setPickupLoading(false);
+    }
+  };
+  // ===== End Added =====
 
   const timeline = [
     { label: "Order Placed", done: true },
     {
-      label: "Confirmed",
-      done: ["confirmed", "processing", "dispatched", "delivered"].includes(
-        orderStatus,
-      ),
+      label: "Paid",
+      done: [
+        "paid",
+        "processing",
+        "ready_to_ship",
+        "shipped",
+        "out_for_delivery",
+        "delivered",
+      ].includes(orderStatus),
     },
     {
       label: "Processing",
-      done: ["processing", "dispatched", "delivered"].includes(orderStatus),
+      done: [
+        "processing",
+        "ready_to_ship",
+        "shipped",
+        "out_for_delivery",
+        "delivered",
+      ].includes(orderStatus),
     },
     {
-      label: "Dispatched",
-      done: ["dispatched", "delivered"].includes(orderStatus),
+      label: "Ready To Ship",
+      done: [
+        "ready_to_ship",
+        "shipped",
+        "out_for_delivery",
+        "delivered",
+      ].includes(orderStatus),
+    },
+    {
+      label: "Shipped",
+      done: ["shipped", "out_for_delivery", "delivered"].includes(orderStatus),
+    },
+    {
+      label: "Out For Delivery",
+      done: ["out_for_delivery", "delivered"].includes(orderStatus),
     },
     { label: "Delivered", done: orderStatus === "delivered" },
   ];
+
+  // ===== Modified =====
+  // Live Delhivery tracking status (if fetched) falls back to whatever the
+  // backend already had stored on the order. Used to decide whether the
+  // Cancel Shipment button should be disabled.
+  const currentTrackingStatus =
+    trackingData?.trackingStatus ||
+    order.tracking_status ||
+    order.delhivery_tracking_status ||
+    null;
+  const normalizedTrackingStatus = currentTrackingStatus
+    ? String(currentTrackingStatus).trim().toLowerCase()
+    : "";
+  const isShipmentDelivered =
+    orderStatus === "delivered" || normalizedTrackingStatus === "delivered";
+  const isShipmentCancelled =
+    orderStatus === "cancelled" || normalizedTrackingStatus === "cancelled";
+  // ===== End Modified =====
 
   return (
     <motion.div
@@ -411,6 +607,200 @@ const OrderModal = ({ order, onClose, onStatusChange }) => {
                 "Not available"}
             </p>
           </div>
+
+          {/* Shipping action */}
+          {orderStatus === "ready_to_ship" && (
+            <div className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+                    Delhivery Shipment
+                  </p>
+                  <p className="text-sm font-semibold text-bree-text-primary mt-0.5">
+                    Create a shipment for this order
+                  </p>
+                </div>
+                <Button
+                  onClick={handleShipOrder}
+                  disabled={shippingLoading}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                >
+                  {shippingLoading ? "Creating..." : "Ship with Delhivery"}
+                </Button>
+              </div>
+
+              {(shipmentAwb ||
+                shipmentTracking ||
+                orderStatus === "shipped") && (
+                <div className="mt-3 rounded-xl bg-white p-3 space-y-2 border border-indigo-100">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                        AWB
+                      </p>
+                      <p className="text-sm font-semibold text-bree-text-primary">
+                        {shipmentAwb || "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                        Tracking Number
+                      </p>
+                      <p className="text-sm font-semibold text-bree-text-primary">
+                        {shipmentTracking || "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                        Shipment Status
+                      </p>
+                      <p className="text-sm font-semibold text-bree-text-primary">
+                        {shipmentStatus}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ===== Modified: Delhivery tracking / label / cancel actions ===== */}
+          {shipmentAwb && (
+            <div className="p-4 rounded-2xl border border-purple-200 bg-purple-50">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-purple-700">
+                    Delhivery Shipment Management
+                  </p>
+                  <p className="text-sm font-semibold text-bree-text-primary mt-0.5">
+                    AWB {shipmentAwb}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    onClick={() => handleTrackShipment(shipmentAwb)}
+                    disabled={trackingLoading}
+                    className="bg-purple-600 hover:bg-purple-700 text-white"
+                  >
+                    <Truck className="w-4 h-4 mr-2" />
+                    {trackingLoading ? "Tracking..." : "Track Shipment"}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => handleDownloadLabel(shipmentAwb)}
+                    disabled={!shipmentAwb || labelLoading}
+                    className="border-bree-border"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    {labelLoading
+                      ? "Downloading..."
+                      : "Download Shipping Label"}
+                  </Button>
+
+                  {/* ===== Added: Schedule Pickup ===== */}
+                  {showSchedulePickupButton ? (
+                    <Button
+                      onClick={handleSchedulePickupClick}
+                      disabled={pickupLoading}
+                      className="bg-teal-600 hover:bg-teal-700 text-white"
+                    >
+                      <PackageCheck className="w-4 h-4 mr-2" />
+                      {pickupLoading ? "Scheduling..." : "Schedule Pickup"}
+                    </Button>
+                  ) : (
+                    pickupRequestId && (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-teal-100 text-teal-700 border border-teal-200">
+                        <PackageCheck className="w-3.5 h-3.5" />
+                        Pickup Scheduled
+                      </span>
+                    )
+                  )}
+                  {/* ===== End Added ===== */}
+
+                  <Button
+                    variant="outline"
+                    onClick={handleCancelClick}
+                    disabled={
+                      cancelLoading ||
+                      isShipmentDelivered ||
+                      isShipmentCancelled
+                    }
+                    className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  >
+                    <Ban className="w-4 h-4 mr-2" />
+                    {cancelLoading ? "Cancelling..." : "Cancel Shipment"}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Live tracking info */}
+              <div className="mt-3 rounded-xl bg-white p-3 border border-purple-100">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                      Tracking Status
+                    </p>
+                    <p className="text-sm font-semibold text-bree-text-primary">
+                      {trackingData?.trackingStatus || "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                      Current Location
+                    </p>
+                    <p className="text-sm font-semibold text-bree-text-primary">
+                      {trackingData?.currentLocation || "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                      Last Scan Time
+                    </p>
+                    <p className="text-sm font-semibold text-bree-text-primary">
+                      {trackingData?.lastUpdate || "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                      Expected Delivery Date
+                    </p>
+                    <p className="text-sm font-semibold text-bree-text-primary">
+                      {trackingData?.expectedDelivery || "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                      Courier Name
+                    </p>
+                    <p className="text-sm font-semibold text-bree-text-primary">
+                      {trackingData?.courierName || order.courier_name || "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                      AWB Number
+                    </p>
+                    <p className="text-sm font-semibold text-bree-text-primary">
+                      {trackingData?.awbNumber || shipmentAwb || "-"}
+                    </p>
+                  </div>
+                  {/* ===== Added: Pickup Request ID ===== */}
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary">
+                      Pickup Request ID
+                    </p>
+                    <p className="text-sm font-semibold text-bree-text-primary">
+                      {pickupRequestId || "-"}
+                    </p>
+                  </div>
+                  {/* ===== End Added ===== */}
+                </div>
+              </div>
+            </div>
+          )}
+          {/* ===== End Modified ===== */}
 
           {/* Update Status */}
           <div>
@@ -745,6 +1135,153 @@ const Orders = () => {
     (ids, newStatus) => applyStatusChange(ids, newStatus),
     [applyStatusChange],
   );
+
+  const handleShipOrder = useCallback(
+    async (orderId) => {
+      try {
+        let res;
+        try {
+          res = await axios.post(
+            "/api/shipping/create-shipment",
+            { orderId },
+            AUTH(),
+          );
+        } catch (err) {
+          if (err?.response?.status === 404 || err?.response?.status === 400) {
+            res = await axios.post(
+              `/api/shipping/create-shipment/${orderId}`,
+              {},
+              AUTH(),
+            );
+          } else {
+            throw err;
+          }
+        }
+
+        const createdOrder = res?.data?.order || {};
+        const mergedOrder = {
+          id: orderId,
+          order_status: createdOrder.status || "shipped",
+          delhivery_awb:
+            createdOrder.awbNumber || res?.data?.delhivery?.awb || null,
+          delhivery_tracking_number: createdOrder.trackingNumber || null,
+          delhivery_tracking_url:
+            createdOrder.trackingUrl ||
+            res?.data?.delhivery?.trackingUrl ||
+            null,
+          ...createdOrder,
+        };
+
+        setOrders((prevOrders) =>
+          prevOrders.map((o) =>
+            o.id === orderId ? { ...o, ...mergedOrder } : o,
+          ),
+        );
+        setSelected((prevSel) =>
+          prevSel && prevSel.id === orderId
+            ? { ...prevSel, ...mergedOrder }
+            : prevSel,
+        );
+        await fetchOrders(new AbortController().signal);
+        toast.success("Shipment created successfully");
+      } catch (err) {
+        const backendMessage =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to create shipment";
+        toast.error(backendMessage);
+      }
+    },
+    [fetchOrders],
+  );
+
+  // ===== Modified =====
+  // ── Delhivery: cancel shipment (mirrors handleShipOrder's pattern) ──────
+  const handleCancelShipment = useCallback(
+    async (orderId) => {
+      try {
+        const res = await axios.post(
+          `/api/shipping/cancel/${orderId}`,
+          {},
+          AUTH(),
+        );
+
+        const cancelledOrder = res?.data?.order || {};
+        const mergedOrder = {
+          id: orderId,
+          tracking_status: cancelledOrder.trackingStatus || "Cancelled",
+          ...cancelledOrder,
+        };
+
+        setOrders((prevOrders) =>
+          prevOrders.map((o) =>
+            o.id === orderId ? { ...o, ...mergedOrder } : o,
+          ),
+        );
+        setSelected((prevSel) =>
+          prevSel && prevSel.id === orderId
+            ? { ...prevSel, ...mergedOrder }
+            : prevSel,
+        );
+        await fetchOrders(new AbortController().signal);
+        toast.success("Shipment cancelled successfully");
+      } catch (err) {
+        const backendMessage =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to cancel shipment";
+        toast.error(backendMessage);
+      }
+    },
+    [fetchOrders],
+  );
+  // ===== End Modified =====
+
+  // ===== Added: Schedule Pickup =====
+  // ── Delhivery: schedule pickup (mirrors handleShipOrder's pattern) ───────
+  const handleSchedulePickup = useCallback(
+    async (orderId) => {
+      try {
+        const res = await axios.post(
+          `/api/shipping/pickup/${orderId}`,
+          {},
+          AUTH(),
+        );
+
+        const pickupOrder = res?.data?.order || {};
+        const mergedOrder = {
+          id: orderId,
+          pickup_request_id:
+            pickupOrder.pickupRequestId ||
+            res?.data?.delhivery?.pickupRequestId ||
+            null,
+          tracking_status: pickupOrder.trackingStatus || "Pickup Scheduled",
+          ...pickupOrder,
+        };
+
+        setOrders((prevOrders) =>
+          prevOrders.map((o) =>
+            o.id === orderId ? { ...o, ...mergedOrder } : o,
+          ),
+        );
+        setSelected((prevSel) =>
+          prevSel && prevSel.id === orderId
+            ? { ...prevSel, ...mergedOrder }
+            : prevSel,
+        );
+        await fetchOrders(new AbortController().signal);
+        toast.success("Pickup scheduled successfully");
+      } catch (err) {
+        const backendMessage =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to schedule pickup";
+        toast.error(backendMessage);
+      }
+    },
+    [fetchOrders],
+  );
+  // ===== End Added =====
 
   /* checkboxes */
   const pageIds = orders.map((o) => o.id);
@@ -1183,6 +1720,9 @@ const Orders = () => {
             order={selectedOrder}
             onClose={() => setSelected(null)}
             onStatusChange={handleStatusChange}
+            onShipOrder={handleShipOrder}
+            onCancelShipment={handleCancelShipment}
+            onSchedulePickup={handleSchedulePickup}
           />
         )}
       </AnimatePresence>

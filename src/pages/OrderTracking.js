@@ -3,9 +3,41 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import axios from "@/lib/api";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import TrackingTimeline from "@/components/orders/TrackingTimeline";
 import OrderTrackingCard from "@/components/orders/OrderTrackingCard";
 import useOrdersSync from "@/hooks/useOrdersSync";
+
+const getShippingDisplay = (order) => {
+  const isFree =
+    order?.is_free_shipping === true ||
+    order?.is_free_shipping === 1 ||
+    order?.isFreeShipping === true ||
+    order?.isFreeShipping === 1;
+
+  if (isFree) {
+    return "Free";
+  }
+
+  if (order?.shipping != null && order.shipping !== "") {
+    const charge = Number(order.shipping);
+    return Number.isFinite(charge) && charge >= 0
+      ? `₹${charge.toLocaleString("en-IN")}`
+      : "Shipping information unavailable";
+  }
+
+  const hasCharge =
+    order?.shipping_charge != null || order?.shippingCharge != null;
+
+  if (!hasCharge) {
+    return "Shipping information unavailable";
+  }
+
+  const charge = Number(order?.shipping_charge ?? order?.shippingCharge ?? 0);
+  return Number.isFinite(charge) && charge >= 0
+    ? `₹${charge.toLocaleString("en-IN")}`
+    : "Shipping information unavailable";
+};
 
 const formatStatusLabel = (status) => {
   if (!status) return "";
@@ -25,6 +57,43 @@ const OrderTracking = () => {
   const [tracking, setTracking] = useState([]);
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
+  const [liveTracking, setLiveTracking] = useState(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [refreshingTracking, setRefreshingTracking] = useState(false);
+  const [trackingError, setTrackingError] = useState("");
+
+  const fetchTrackingData = useCallback(
+    async (awb, { showLoading = true } = {}) => {
+      if (!awb) {
+        setLiveTracking(null);
+        setTrackingError("");
+        return;
+      }
+
+      if (showLoading) {
+        setTrackingLoading(true);
+      } else {
+        setRefreshingTracking(true);
+      }
+
+      try {
+        const res = await axios.get(`/api/shipping/track/${awb}`, {
+          withCredentials: true,
+        });
+        const trackingResponse = res?.data?.tracking || res?.data || null;
+        setLiveTracking(trackingResponse);
+        setTrackingError("");
+      } catch (e) {
+        console.error(e);
+        setLiveTracking(null);
+        setTrackingError("Tracking information is temporarily unavailable.");
+      } finally {
+        setTrackingLoading(false);
+        setRefreshingTracking(false);
+      }
+    },
+    [],
+  );
 
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -33,9 +102,6 @@ const OrderTracking = () => {
       const res = await axios.get(`${API}/orders/${id}/tracking`, {
         withCredentials: true,
       });
-
-      // console.log("API RESPONSE", res.data);
-      // console.log("ORDER ITEMS", res.data.order?.items);
 
       if (res.data?.order) {
         setOrder(res.data.order);
@@ -46,9 +112,17 @@ const OrderTracking = () => {
           (res.data.orderItems?.length ? res.data.orderItems : null) ||
           [];
         setItems(resolvedItems);
-        // console.log("Order", res.data.order);
-        // console.log("Items", resolvedItems);
-        // console.log("Shipping", res.data.order.shipping_address);
+        const resolvedAwb =
+          res.data.order?.delhivery_awb ||
+          res.data.order?.awbNumber ||
+          res.data.order?.awb ||
+          null;
+        if (resolvedAwb) {
+          await fetchTrackingData(resolvedAwb, { showLoading: true });
+        } else {
+          setLiveTracking(null);
+          setTrackingError("");
+        }
         setError("");
       } else {
         setError("Order not found. Please verify the order ID and try again.");
@@ -63,7 +137,7 @@ const OrderTracking = () => {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, fetchTrackingData]);
 
   useEffect(() => {
     fetch();
@@ -74,7 +148,73 @@ const OrderTracking = () => {
     fetch();
   });
 
+  const awbNumber =
+    order?.delhivery_awb || order?.awbNumber || order?.awb || null;
+  const hasAwb = Boolean(awbNumber && awbNumber !== "-");
+
   const steps = useMemo(() => {
+    const scanHistory = Array.isArray(liveTracking?.scanHistory)
+      ? liveTracking.scanHistory
+      : [];
+
+    if (scanHistory.length) {
+      return scanHistory.map((item, index) => {
+        const status =
+          item?.status ||
+          item?.scanStatus ||
+          item?.scan_status ||
+          item?.Status ||
+          item?.ScanStatus ||
+          item?.trackingStatus ||
+          item?.TrackingStatus ||
+          "";
+
+        return {
+          id: item?.id || `${index}-${status || "scan"}`,
+          key: item?.id || `${index}-${status || "scan"}`,
+          status,
+          label: formatStatusLabel(status),
+          timestamp:
+            item?.timestamp ||
+            item?.time ||
+            item?.date ||
+            item?.datetime ||
+            item?.updatedAt ||
+            item?.createdAt ||
+            null,
+          notes:
+            item?.remarks ||
+            item?.remark ||
+            item?.instructions ||
+            item?.Instruction ||
+            item?.notes ||
+            null,
+          location:
+            item?.location ||
+            item?.Location ||
+            item?.statusLocation ||
+            item?.status_location ||
+            null,
+        };
+      });
+    }
+
+    if (liveTracking?.trackingStatus || liveTracking?.status) {
+      const currentStatus =
+        liveTracking?.trackingStatus || liveTracking?.status || "";
+      return [
+        {
+          id: `current-${currentStatus}`,
+          key: `current-${currentStatus}`,
+          status: currentStatus,
+          label: formatStatusLabel(currentStatus),
+          timestamp: liveTracking?.lastUpdate || null,
+          notes: liveTracking?.remarks || null,
+          location: liveTracking?.currentLocation || null,
+        },
+      ];
+    }
+
     // Build steps from order status history
     const historySteps = tracking.map((item, index) => ({
       id: item.id || `${item.order_id}-${item.created_at}`,
@@ -94,11 +234,6 @@ const OrderTracking = () => {
     );
 
     if (!hasPending && order?.created_at) {
-      // console.log(
-      //   "[DEBUG Timeline]",
-      //   "Injecting pending status with created_at:",
-      //   order.created_at,
-      // );
       return [
         {
           id: `pending-${order.id}`,
@@ -113,12 +248,8 @@ const OrderTracking = () => {
       ];
     }
 
-    // console.log(
-    //   "[DEBUG Timeline]",
-    //   "Pending already in history or no order.created_at",
-    // );
     return historySteps;
-  }, [tracking, order]);
+  }, [liveTracking, tracking, order]);
 
   const subtotal =
     order?.subtotal != null
@@ -137,6 +268,39 @@ const OrderTracking = () => {
       : order?.amount != null
         ? Number(order.amount)
         : subtotal;
+
+  const shippingDisplay = getShippingDisplay(order);
+  const hasEstimatedDelivery = Boolean(
+    order?.estimated_delivery?.toString().trim(),
+  );
+
+  useEffect(() => {
+    if (!hasAwb || !liveTracking) return;
+
+    const currentStatus = String(
+      liveTracking?.trackingStatus || liveTracking?.status || "",
+    )
+      .trim()
+      .toLowerCase();
+
+    const terminalStatuses = [
+      "delivered",
+      "cancelled",
+      "returned",
+      "rto",
+      "damaged",
+      "lost",
+      "undelivered",
+    ];
+
+    if (!currentStatus || terminalStatuses.includes(currentStatus)) return;
+
+    const intervalId = window.setInterval(() => {
+      void fetchTrackingData(awbNumber, { showLoading: false });
+    }, 30000);
+
+    return () => window.clearInterval(intervalId);
+  }, [awbNumber, hasAwb, liveTracking, fetchTrackingData]);
 
   if (loading) {
     return (
@@ -180,24 +344,74 @@ const OrderTracking = () => {
       <div className="max-w-5xl mx-auto px-6 md:px-12">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <OrderTrackingCard order={order} />
-
-            <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
-              <h3 className="font-semibold text-bree-text-primary mb-4">
-                Tracking Timeline
-              </h3>
-
-              {steps.length === 0 ? (
-                <div className="text-sm text-bree-text-secondary">
-                  No tracking updates available
-                </div>
-              ) : (
-                <TrackingTimeline
-                  steps={steps}
-                  currentStatus={order.status || order.order_status}
+            {hasAwb ? (
+              <>
+                <OrderTrackingCard
+                  order={order}
+                  trackingData={liveTracking}
+                  trackingLoading={trackingLoading}
+                  trackingError={trackingError}
+                  refreshingTracking={refreshingTracking}
+                  onRefreshTracking={() =>
+                    fetchTrackingData(awbNumber, { showLoading: false })
+                  }
                 />
-              )}
-            </div>
+
+                <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
+                  <div className="flex items-center justify-between gap-4 mb-4">
+                    <h3 className="font-semibold text-bree-text-primary">
+                      Tracking Timeline
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        fetchTrackingData(awbNumber, { showLoading: false })
+                      }
+                      disabled={refreshingTracking || trackingLoading}
+                      className="inline-flex items-center gap-2 rounded-full border border-bree-border px-3 py-1.5 text-sm font-medium text-bree-text-primary hover:bg-bree-bg disabled:opacity-60"
+                    >
+                      {refreshingTracking ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : null}
+                      Refresh Tracking
+                    </button>
+                  </div>
+
+                  {trackingLoading && !liveTracking ? (
+                    <div className="text-sm text-bree-text-secondary">
+                      Loading shipment tracking...
+                    </div>
+                  ) : trackingError ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                      {trackingError}
+                    </div>
+                  ) : steps.length === 0 ? (
+                    <div className="text-sm text-bree-text-secondary">
+                      No tracking updates available
+                    </div>
+                  ) : (
+                    <TrackingTimeline
+                      steps={steps}
+                      currentStatus={
+                        liveTracking?.trackingStatus ||
+                        liveTracking?.status ||
+                        order.status ||
+                        order.order_status
+                      }
+                    />
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
+                <h3 className="font-semibold text-bree-text-primary mb-2">
+                  Shipment Tracking
+                </h3>
+                <p className="text-sm text-bree-text-secondary">
+                  Shipment has not been created yet.
+                </p>
+              </div>
+            )}
 
             <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
               <h3 className="font-semibold text-bree-text-primary mb-4">
@@ -293,8 +507,19 @@ const OrderTracking = () => {
 
                 <div className="flex justify-between mt-2">
                   <span>Shipping</span>
-                  <span className="text-green-600 font-medium">Free</span>
+                  <span className="text-green-600 font-medium">
+                    {shippingDisplay}
+                  </span>
                 </div>
+
+                {hasEstimatedDelivery && (
+                  <div className="flex justify-between mt-2">
+                    <span>Estimated Delivery</span>
+                    <span className="text-bree-text-primary font-medium">
+                      {order.estimated_delivery}
+                    </span>
+                  </div>
+                )}
 
                 <div className="flex justify-between mt-2 font-semibold">
                   <span>Total</span>

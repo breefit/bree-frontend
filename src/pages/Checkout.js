@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
 import { ShoppingBag, Loader2, AlertCircle } from "lucide-react";
@@ -47,6 +47,31 @@ const buildLineItems = (cartItems) =>
 const buildLineItemsTotal = (lineItems) =>
   lineItems.reduce((sum, item) => sum + item.offer_price * item.quantity, 0);
 
+const getShippingDisplay = (item) => {
+  const isFree =
+    item?.is_free_shipping === true ||
+    item?.is_free_shipping === 1 ||
+    item?.isFreeShipping === true ||
+    item?.isFreeShipping === 1;
+
+  if (isFree) {
+    return "✓ Free Shipping";
+  }
+
+  const hasCharge =
+    item?.shipping_charge != null || item?.shippingCharge != null;
+
+  if (!hasCharge) {
+    return "Shipping information unavailable";
+  }
+
+  const charge = Number(item?.shipping_charge ?? item?.shippingCharge ?? 0);
+
+  return Number.isFinite(charge) && charge >= 0
+    ? `Shipping ₹${charge.toLocaleString("en-IN")}`
+    : "Shipping information unavailable";
+};
+
 // ── Loading phase labels shown to the user ────────────────────────────────────
 const LOADING_PHASE = {
   idle: null,
@@ -59,7 +84,14 @@ const LOADING_PHASE = {
 
 const Checkout = () => {
   const navigate = useNavigate();
-  const { cartItems, cartTotal, syncCart } = useCart();
+  const { cartItems, cartTotal, cartShipping, syncCart } = useCart();
+  const orderSubtotal = Number(cartTotal ?? 0);
+  const orderShipping = Number(cartShipping ?? 0);
+  const orderTotal = orderSubtotal + orderShipping;
+
+  // console.log("[Checkout] cartTotal", orderSubtotal);
+  // console.log("[Checkout] cartShipping", orderShipping);
+  // console.log("[Checkout] finalTotal", orderTotal);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isInitialising, setIsInitialising] = useState(true);
@@ -68,6 +100,7 @@ const Checkout = () => {
   const [showCartModal, setShowCartModal] = useState(false);
   const [cartModalItems, setCartModalItems] = useState([]);
   const [acceptedChanges, setAcceptedChanges] = useState(false);
+  const hasInitialisedRef = useRef(false);
 
   const isLoading = loadingPhase !== "idle";
 
@@ -126,10 +159,18 @@ const Checkout = () => {
   }, [syncCart]);
 
   useEffect(() => {
-    if (!cartItems.length && loadingPhase === "idle") {
-      navigate("/shop");
+    if (!cartItems.length) {
+      if (loadingPhase === "idle") {
+        navigate("/shop");
+      }
       return;
     }
+
+    if (hasInitialisedRef.current) {
+      return;
+    }
+
+    hasInitialisedRef.current = true;
     initialise();
   }, [cartItems.length, loadingPhase, navigate, initialise]);
 
@@ -192,7 +233,7 @@ const Checkout = () => {
       // Razorpay Magic Checkout collects and confirms the final details
       // (name, phone, email, shipping address) during the payment popup.
       const createOrderPayload = {
-        amount: cartTotal,
+        amount: orderTotal,
         currency: "INR",
         items: cartItems.map((item) => ({
           product_id: item.id,
@@ -508,17 +549,29 @@ const Checkout = () => {
             <div className="flex justify-between text-sm">
               <span className="text-bree-text-secondary">Subtotal</span>
               <span className="font-medium text-bree-text-primary">
-                ₹{cartTotal.toLocaleString("en-IN")}
+                ₹{orderSubtotal.toLocaleString("en-IN")}
               </span>
             </div>
-            <div className="flex justify-between text-sm">
+            <div className="space-y-2 text-sm">
               <span className="text-bree-text-secondary">Shipping</span>
-              <span className="font-semibold text-bree-primary">Free</span>
+              <div className="space-y-1.5">
+                {cartItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 text-bree-text-primary"
+                  >
+                    <span className="truncate">{item.name}</span>
+                    <span className="font-medium text-bree-primary whitespace-nowrap">
+                      {getShippingDisplay(item)}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="flex justify-between items-center text-lg font-bold pt-3 border-t border-bree-border">
               <span className="text-bree-text-primary">Total</span>
               <span className="text-bree-primary">
-                ₹{cartTotal.toLocaleString("en-IN")}
+                ₹{orderTotal.toLocaleString("en-IN")}
               </span>
             </div>
           </div>

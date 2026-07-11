@@ -23,6 +23,9 @@ const EMPTY_FORM = {
   displayOrder: "",
   journey_level: "", // 0 = unclassified; 1–4 = trial→annual
   show_recommendations: true, // hide recommendations for this product?
+  is_free_shipping: true,
+  shipping_charge: "",
+  estimated_delivery: "3–7 Business Days",
 };
 
 const JOURNEY_LEVEL_OPTIONS = [
@@ -76,7 +79,7 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
               initial.show_recommendations !== "0" &&
               initial.show_recommendations !== "false";
 
-        setForm({
+        const initialForm = {
           ...EMPTY_FORM,
           ...initial,
           is_subscription: is_subscription_bool,
@@ -88,12 +91,27 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
               : "",
           stockQty: initial.stock_qty ?? initial.stockQty ?? "",
           displayOrder: initial.display_order ?? initial.displayOrder ?? "",
+          is_free_shipping:
+            initial.is_free_shipping === 1 ||
+            initial.is_free_shipping === true ||
+            initial.isFreeShipping === 1 ||
+            initial.isFreeShipping === true ||
+            initial.free_shipping === 1 ||
+            initial.free_shipping === true,
+          shipping_charge:
+            initial.shipping_charge ?? initial.shippingCharge ?? "",
+          estimated_delivery:
+            initial.estimated_delivery ||
+            initial.estimatedDelivery ||
+            "3–7 Business Days",
           features: Array.isArray(initial.features)
             ? initial.features.join(", ")
             : typeof initial.features === "string"
               ? initial.features
               : "",
-        });
+        };
+
+        setForm(initialForm);
 
         setPreview(initial.image || "");
       } else {
@@ -165,6 +183,11 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
           form.journey_level !== "" ? Number(form.journey_level) : 0,
         show_recommendations: form.show_recommendations,
         is_subscription: form.is_subscription,
+        is_free_shipping: form.is_free_shipping,
+        shipping_charge: form.is_free_shipping
+          ? 0
+          : Number(form.shipping_charge || 0),
+        estimated_delivery: form.estimated_delivery || "3–7 Business Days",
         imageFile,
       };
 
@@ -369,6 +392,62 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
                   <p className="text-xs text-bree-text-secondary mt-1">
                     Controls the order products appear on the shop page.
                   </p>
+                </div>
+
+                {/* Shipping Configuration */}
+                <div className="rounded-2xl border border-bree-border p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="block text-sm font-medium text-bree-text-primary">
+                        Free Shipping
+                      </label>
+                      <p className="text-xs text-bree-text-secondary mt-1">
+                        Toggle this on to show free shipping for this product.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.is_free_shipping)}
+                      onChange={(e) =>
+                        set("is_free_shipping", e.target.checked)
+                      }
+                      className="h-4 w-4 rounded border-bree-border text-bree-primary focus:ring-bree-primary"
+                    />
+                  </div>
+
+                  {!form.is_free_shipping && (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-bree-text-primary">
+                          Shipping Charge (₹)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={form.shipping_charge}
+                          onChange={(e) =>
+                            set("shipping_charge", e.target.value)
+                          }
+                          placeholder="79"
+                          className="w-full h-12 px-4 rounded-2xl border border-bree-border outline-none focus:border-bree-primary"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-bree-text-primary">
+                          Estimated Delivery
+                        </label>
+                        <input
+                          type="text"
+                          value={form.estimated_delivery}
+                          onChange={(e) =>
+                            set("estimated_delivery", e.target.value)
+                          }
+                          placeholder="3–7 Business Days"
+                          className="w-full h-12 px-4 rounded-2xl border border-bree-border outline-none focus:border-bree-primary"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Journey Level */}

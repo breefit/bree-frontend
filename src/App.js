@@ -18,6 +18,7 @@ const Login = lazy(() => import("@/pages/Login"));
 const Register = lazy(() => import("@/pages/Register")); // FIX: Register page was imported in routes but missing lazy import
 const Profile = lazy(() => import("@/pages/Profile"));
 const OrderTracking = lazy(() => import("@/pages/OrderTracking"));
+const Support = lazy(() => import("@/pages/Support"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
 // Admin Pages
@@ -184,7 +185,7 @@ function AppRouter() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Header />
-      <main>
+      <main className="flex-1">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/shop" element={<Shop />} />
@@ -192,6 +193,7 @@ function AppRouter() {
           <Route path="/benefits" element={<Benefits />} />
           <Route path="/bulk" element={<BulkBookings />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/support" element={<Support />} />
           <Route
             path="/checkout"
             element={
@@ -269,7 +271,7 @@ function App() {
       <AuthProvider>
         <AdminAuthProvider>
           <CartProvider>
-            <div className="App min-h-screen bg-bree-bg">
+            <div className="App app-shell flex min-h-0 flex-col bg-bree-bg">
               <BrowserRouter>
                 <ScrollToTop />
                 <AppRouter />

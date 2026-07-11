@@ -8,6 +8,37 @@ import { Button } from "@/components/ui/button";
 import { useCart } from "@/context/CartContext";
 import axios from "@/lib/api";
 
+const getShippingDisplay = (order) => {
+  const isFree =
+    order?.is_free_shipping === true ||
+    order?.is_free_shipping === 1 ||
+    order?.isFreeShipping === true ||
+    order?.isFreeShipping === 1;
+
+  if (isFree) {
+    return "Free";
+  }
+
+  if (order?.shipping != null && order.shipping !== "") {
+    const charge = Number(order.shipping);
+    return Number.isFinite(charge) && charge >= 0
+      ? `₹${charge.toLocaleString("en-IN")}`
+      : "Shipping information unavailable";
+  }
+
+  const hasCharge =
+    order?.shipping_charge != null || order?.shippingCharge != null;
+
+  if (!hasCharge) {
+    return "Shipping information unavailable";
+  }
+
+  const charge = Number(order?.shipping_charge ?? order?.shippingCharge ?? 0);
+  return Number.isFinite(charge) && charge >= 0
+    ? `₹${charge.toLocaleString("en-IN")}`
+    : "Shipping information unavailable";
+};
+
 const CheckoutSuccess = () => {
   const [searchParams] = useSearchParams();
 
@@ -24,6 +55,11 @@ const CheckoutSuccess = () => {
   const [orderDetails, setOrderDetails] = useState(null);
 
   const { clearCart } = useCart();
+
+  const shippingDisplay = getShippingDisplay(orderDetails);
+  const hasEstimatedDelivery = Boolean(
+    orderDetails?.estimated_delivery?.toString().trim(),
+  );
 
   useEffect(() => {
     const fetchOrder = async () => {
@@ -144,7 +180,13 @@ const CheckoutSuccess = () => {
                 <div className="bg-bree-bg rounded-2xl p-5">
                   <h3 className="font-bold mb-4">Order Status</h3>
                   <Info label="Status" value={orderDetails?.order_status} />
-                  <Info label="Delivery" value="3–5 Days" />
+                  {hasEstimatedDelivery && (
+                    <Info
+                      label="Estimated Delivery"
+                      value={orderDetails?.estimated_delivery}
+                    />
+                  )}
+                  <Info label="Shipping" value={shippingDisplay} />
                   <Info
                     label="Amount Paid"
                     value={orderDetails?.total ? `₹${orderDetails.total}` : "—"}

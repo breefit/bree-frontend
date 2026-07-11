@@ -192,11 +192,11 @@ const Shop = () => {
                 </div>
 
                 <h3 className="font-outfit font-semibold text-bree-text-primary mb-2">
-                  Free Shipping
+                  Shipping per product
                 </h3>
 
                 <p className="text-bree-text-secondary text-sm">
-                  On all wellness packs
+                  View the shipping details directly on each product card
                 </p>
               </motion.div>
 
