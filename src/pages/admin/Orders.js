@@ -57,6 +57,22 @@ const ORDER_STATUSES = [
   "returned",
 ];
 
+// ===== Added: Delhivery automatic-sync boundary =====
+// Once a shipment (AWB) is created, Delhivery becomes the single source of
+// truth for status. Admins may only manually move an order through the
+// pre-shipment stages below; everything after that (shipped ->
+// out_for_delivery -> delivered / returned / cancelled) is synced in
+// automatically via the Delhivery webhook/tracking flow.
+const MANUAL_EDITABLE_STATUSES = ["processing", "ready_to_ship"];
+
+const DELHIVERY_SYNC_MESSAGE =
+  "Shipping status is automatically synchronized from Delhivery.";
+
+// Returns true once a Delhivery shipment (AWB) has been created for the order.
+const hasAwbShipment = (order) =>
+  Boolean(order?.delhivery_awb || order?.awbNumber || order?.awb);
+// ===== End Added =====
+
 const DATE_RANGES = [
   { label: "All Time", value: "all" },
   { label: "Today", value: "today" },
@@ -97,7 +113,7 @@ const PAYMENT_COLORS = {
 
 const getCommonBulkStatuses = (orders, selectedIds) => {
   const selectedOrders = orders.filter((o) => selectedIds.includes(o.id));
-  if (!selectedOrders.length) return ORDER_STATUSES;
+  if (!selectedOrders.length) return MANUAL_EDITABLE_STATUSES;
   const intersection = selectedOrders
     .map(
       (o) =>
@@ -116,7 +132,17 @@ const getCommonBulkStatuses = (orders, selectedIds) => {
         ],
       ),
     );
-  return [...intersection].length ? [...intersection] : ORDER_STATUSES;
+  // ===== Modified =====
+  // Bulk manual updates are restricted to the pre-shipment stages only.
+  // Everything from "shipped" onward is Delhivery-driven and must not be
+  // settable via the bulk-update control.
+  const manualIntersection = [...intersection].filter((s) =>
+    MANUAL_EDITABLE_STATUSES.includes(s),
+  );
+  return manualIntersection.length
+    ? manualIntersection
+    : MANUAL_EDITABLE_STATUSES;
+  // ===== End Modified =====
 };
 
 /* ── date filter helper ─────────────────────────────────────────────────── */
@@ -803,28 +829,43 @@ const OrderModal = ({
           {/* ===== End Modified ===== */}
 
           {/* Update Status */}
+          {/* ===== Modified: Delhivery automatic-sync boundary =====
+              Once a shipment (AWB) exists, Delhivery is the source of truth
+              for status. Manual buttons are hidden and replaced with a
+              sync notice. Before shipment creation, only the pre-shipment
+              statuses (processing / ready_to_ship) remain manually settable. */}
           <div>
             <p className="text-xs text-bree-text-secondary mb-2 font-medium uppercase tracking-wide">
               Update Order Status
             </p>
-            <div className="flex flex-wrap gap-2">
-              {ORDER_STATUSES.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => onStatusChange([order.id], s)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize transition cursor-pointer
-                    ${
-                      normalizeStatus(order.order_status) === s
-                        ? STATUS_COLORS[s] +
-                          " ring-2 ring-offset-1 ring-bree-primary"
-                        : "bg-white border-bree-border text-bree-text-secondary hover:border-bree-primary hover:text-bree-primary"
-                    }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            {shipmentAwb ? (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-bree-bg border border-bree-border">
+                <Truck className="w-4 h-4 text-bree-text-secondary flex-shrink-0" />
+                <p className="text-sm text-bree-text-secondary">
+                  {DELHIVERY_SYNC_MESSAGE}
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {MANUAL_EDITABLE_STATUSES.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => onStatusChange([order.id], s)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize transition cursor-pointer
+                      ${
+                        normalizeStatus(order.order_status) === s
+                          ? STATUS_COLORS[s] +
+                            " ring-2 ring-offset-1 ring-bree-primary"
+                          : "bg-white border-bree-border text-bree-text-secondary hover:border-bree-primary hover:text-bree-primary"
+                      }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+          {/* ===== End Modified ===== */}
 
           {/* Order Timeline */}
           <div>
@@ -869,7 +910,7 @@ const BulkBar = ({ count, onApply, onClear, availableStatuses }) => {
   const hasSelection = count > 0;
   const selectableStatuses = availableStatuses.length
     ? availableStatuses
-    : ORDER_STATUSES;
+    : MANUAL_EDITABLE_STATUSES;
   return (
     <div className="flex flex-wrap items-center gap-3 bg-[#EFF6FF] border border-[#BFDBFE] px-5 py-3 rounded-2xl">
       <div className="flex items-center gap-2">
@@ -935,9 +976,29 @@ const BulkBar = ({ count, onApply, onClear, availableStatuses }) => {
 };
 
 /* ── inline status dropdown ──────────────────────────────────────────────── */
-const StatusCell = ({ orderId, currentStatus, onChange }) => {
+// ===== Modified: Delhivery automatic-sync boundary =====
+// Accepts a `locked` prop — true once the order has a Delhivery AWB. When
+// locked, the dropdown is replaced with a static, non-editable badge and a
+// tooltip explaining that status now comes from Delhivery. When not locked,
+// the dropdown only ever offers the manual pre-shipment statuses.
+const StatusCell = ({ orderId, currentStatus, onChange, locked }) => {
   const safeStatus = normalizeStatus(currentStatus);
-  const availableStatuses = ORDER_TRANSITIONS[safeStatus] || [safeStatus];
+
+  if (locked) {
+    return (
+      <span
+        title={DELHIVERY_SYNC_MESSAGE}
+        className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize inline-block cursor-default
+          ${STATUS_COLORS[safeStatus] || "bg-gray-100 text-gray-600 border-gray-200"}`}
+      >
+        {safeStatus.replace(/_/g, " ")}
+      </span>
+    );
+  }
+
+  const availableStatuses = (
+    ORDER_TRANSITIONS[safeStatus] || [safeStatus]
+  ).filter((s) => MANUAL_EDITABLE_STATUSES.includes(s) || s === safeStatus);
 
   return (
     <select
@@ -959,6 +1020,7 @@ const StatusCell = ({ orderId, currentStatus, onChange }) => {
     </select>
   );
 };
+// ===== End Modified =====
 
 /* ── sort button ─────────────────────────────────────────────────────────── */
 const SortBtn = memo(({ field, sortField, onSort }) => (
@@ -1636,6 +1698,7 @@ const Orders = () => {
                           orderId={order.id}
                           currentStatus={order.order_status}
                           onChange={handleStatusChange}
+                          locked={hasAwbShipment(order)}
                         />
                       </td>
                       <td className="py-3 px-4 text-xs text-bree-text-secondary whitespace-nowrap">
