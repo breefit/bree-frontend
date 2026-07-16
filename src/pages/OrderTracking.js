@@ -344,64 +344,25 @@ const OrderTracking = () => {
       <div className="max-w-5xl mx-auto px-6 md:px-12">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
+            {/* ===== Modified: Order Timeline must always render =====
+                Previously the OrderTrackingCard AND the Tracking Timeline
+                were both gated behind `hasAwb`, so the timeline vanished
+                entirely before shipment creation. Now only the live
+                Delhivery card (which has nothing to show pre-shipment) is
+                gated; the timeline itself renders unconditionally, sourced
+                from `steps`, which already falls back to
+                order_status_history when there's no live tracking data. */}
             {hasAwb ? (
-              <>
-                <OrderTrackingCard
-                  order={order}
-                  trackingData={liveTracking}
-                  trackingLoading={trackingLoading}
-                  trackingError={trackingError}
-                  refreshingTracking={refreshingTracking}
-                  onRefreshTracking={() =>
-                    fetchTrackingData(awbNumber, { showLoading: false })
-                  }
-                />
-
-                <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
-                  <div className="flex items-center justify-between gap-4 mb-4">
-                    <h3 className="font-semibold text-bree-text-primary">
-                      Tracking Timeline
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        fetchTrackingData(awbNumber, { showLoading: false })
-                      }
-                      disabled={refreshingTracking || trackingLoading}
-                      className="inline-flex items-center gap-2 rounded-full border border-bree-border px-3 py-1.5 text-sm font-medium text-bree-text-primary hover:bg-bree-bg disabled:opacity-60"
-                    >
-                      {refreshingTracking ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : null}
-                      Refresh Tracking
-                    </button>
-                  </div>
-
-                  {trackingLoading && !liveTracking ? (
-                    <div className="text-sm text-bree-text-secondary">
-                      Loading shipment tracking...
-                    </div>
-                  ) : trackingError ? (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                      {trackingError}
-                    </div>
-                  ) : steps.length === 0 ? (
-                    <div className="text-sm text-bree-text-secondary">
-                      No tracking updates available
-                    </div>
-                  ) : (
-                    <TrackingTimeline
-                      steps={steps}
-                      currentStatus={
-                        liveTracking?.trackingStatus ||
-                        liveTracking?.status ||
-                        order.status ||
-                        order.order_status
-                      }
-                    />
-                  )}
-                </div>
-              </>
+              <OrderTrackingCard
+                order={order}
+                trackingData={liveTracking}
+                trackingLoading={trackingLoading}
+                trackingError={trackingError}
+                refreshingTracking={refreshingTracking}
+                onRefreshTracking={() =>
+                  fetchTrackingData(awbNumber, { showLoading: false })
+                }
+              />
             ) : (
               <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
                 <h3 className="font-semibold text-bree-text-primary mb-2">
@@ -412,6 +373,54 @@ const OrderTracking = () => {
                 </p>
               </div>
             )}
+
+            <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <h3 className="font-semibold text-bree-text-primary">
+                  Tracking Timeline
+                </h3>
+                {hasAwb && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fetchTrackingData(awbNumber, { showLoading: false })
+                    }
+                    disabled={refreshingTracking || trackingLoading}
+                    className="inline-flex items-center gap-2 rounded-full border border-bree-border px-3 py-1.5 text-sm font-medium text-bree-text-primary hover:bg-bree-bg disabled:opacity-60"
+                  >
+                    {refreshingTracking ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : null}
+                    Refresh Tracking
+                  </button>
+                )}
+              </div>
+
+              {trackingLoading && !liveTracking ? (
+                <div className="text-sm text-bree-text-secondary">
+                  Loading shipment tracking...
+                </div>
+              ) : trackingError ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                  {trackingError}
+                </div>
+              ) : steps.length === 0 ? (
+                <div className="text-sm text-bree-text-secondary">
+                  No tracking updates available
+                </div>
+              ) : (
+                <TrackingTimeline
+                  steps={steps}
+                  currentStatus={
+                    liveTracking?.trackingStatus ||
+                    liveTracking?.status ||
+                    order.status ||
+                    order.order_status
+                  }
+                />
+              )}
+            </div>
+            {/* ===== End Modified ===== */}
 
             <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
               <h3 className="font-semibold text-bree-text-primary mb-4">
