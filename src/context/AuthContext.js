@@ -170,31 +170,49 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const registerEmail = async (name, email, password) => {
-    const response = await axios.post("/api/auth/register", {
-      name,
-      email,
-      password,
-    });
-    setUser(response.data);
-    if (response.data?.accessToken) {
-      localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
+  const sendOtp = async (mobile) => {
+    try {
+      const response = await axios.post("/api/auth/send-otp", {
+        mobile,
+      });
+      toast.success("OTP sent successfully to your WhatsApp.");
+      return response.data;
+    } catch (error) {
+      toast.error(getApiErrorMessage(error) || "Failed to send OTP.");
+      throw error;
     }
-    broadcastAuthEvent("login");
-    return response.data;
   };
 
-  const loginEmail = async (email, password) => {
-    const response = await axios.post("/api/auth/login", {
-      email,
-      password,
-    });
-    setUser(response.data);
-    if (response.data?.accessToken) {
-      localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
+  const verifyOtp = async (mobile, otp) => {
+    try {
+      const response = await axios.post("/api/auth/verify-otp", {
+        mobile,
+        otp,
+      });
+      setUser(response.data);
+      if (response.data?.accessToken) {
+        localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
+      }
+      broadcastAuthEvent("login");
+      toast.success("Login successful.");
+      return response.data;
+    } catch (error) {
+      toast.error(getApiErrorMessage(error) || "Invalid OTP.");
+      throw error;
     }
-    broadcastAuthEvent("login");
-    return response.data;
+  };
+
+  const resendOtp = async (mobile) => {
+    try {
+      const response = await axios.post("/api/auth/resend-otp", {
+        mobile,
+      });
+      toast.success("OTP resent successfully.");
+      return response.data;
+    } catch (error) {
+      toast.error(getApiErrorMessage(error) || "Failed to resend OTP.");
+      throw error;
+    }
   };
 
   const logout = async () => {
@@ -220,8 +238,9 @@ export const AuthProvider = ({ children }) => {
         loading,
         authenticating,
         loginWithGoogle,
-        registerEmail,
-        loginEmail,
+        sendOtp,
+        verifyOtp,
+        resendOtp,
         logout,
         checkAuth,
       }}
