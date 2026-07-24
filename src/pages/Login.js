@@ -10,6 +10,21 @@ import { useAuth } from "@/context/AuthContext";
 
 const RESEND_SECONDS = 30;
 
+// Masks a 10-digit mobile number for display, keeping the first 2 and
+// last 2 digits visible (e.g. 6281241187 -> 62******87). The country
+// code is handled separately by the caller and is never touched here.
+// Falls back to returning the value unchanged if it isn't a full
+// 10-digit number, so we never show something misleading or throw.
+const maskMobileNumber = (mobile) => {
+  if (!mobile || typeof mobile !== "string" || mobile.length < 10) {
+    return mobile;
+  }
+  const first = mobile.slice(0, 2);
+  const last = mobile.slice(-2);
+  const masked = "*".repeat(mobile.length - 4);
+  return `${first}${masked}${last}`;
+};
+
 const Login = () => {
   const {
     loginWithGoogle,
@@ -331,7 +346,7 @@ const Login = () => {
                     />
                   </div>
                   <p className="text-sm text-bree-text-secondary">
-                    OTP sent to +91 {mobile} via WhatsApp.{" "}
+                    OTP sent to +91 {maskMobileNumber(mobile)} via WhatsApp.{" "}
                     <button
                       type="button"
                       onClick={handleChangeNumber}
