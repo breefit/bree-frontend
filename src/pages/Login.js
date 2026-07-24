@@ -2,7 +2,7 @@ import { Helmet } from "react-helmet-async";
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Phone, KeyRound, Loader2, ArrowRight } from "lucide-react";
+import { Phone, KeyRound, Loader2, ArrowRight, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,20 +11,28 @@ import { useAuth } from "@/context/AuthContext";
 const RESEND_SECONDS = 30;
 
 const Login = () => {
-  const { loginWithGoogle, sendOtp, verifyOtp, resendOtp, authenticating } =
-    useAuth();
+  const {
+    loginWithGoogle,
+    sendOtp,
+    verifyOtp,
+    resendOtp,
+    completeProfile,
+    authenticating,
+  } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const redirectPath = location.state?.from || "/";
 
-  const [step, setStep] = useState("mobile"); // 'mobile' or 'otp'
+  const [step, setStep] = useState("mobile"); // 'mobile' | 'otp' | 'profile'
   const [mobile, setMobile] = useState("");
   const [otp, setOtp] = useState("");
+  const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
   const timerRef = useRef(null);
   const mobileInputRef = useRef(null);
   const otpInputRef = useRef(null);
+  const nameInputRef = useRef(null);
 
   useEffect(() => {
     if (resendTimer <= 0) {
@@ -52,6 +60,12 @@ const Login = () => {
   useEffect(() => {
     if (step === "otp") {
       otpInputRef.current?.focus();
+    }
+  }, [step]);
+
+  useEffect(() => {
+    if (step === "profile") {
+      nameInputRef.current?.focus();
     }
   }, [step]);
 
@@ -91,8 +105,15 @@ const Login = () => {
 
     setIsLoading(true);
     try {
-      await verifyOtp(mobile, otp);
-      navigate(redirectPath, { replace: true });
+      // verifyOtp() must resolve with the backend response shape:
+      // existing user -> { success, isNewUser: false, user, accessToken }
+      // new user      -> { success, isNewUser: true, mobile }
+      const response = await verifyOtp(mobile, otp);
+      if (response?.isNewUser === true) {
+        setStep("profile");
+      } else {
+        navigate(redirectPath, { replace: true });
+      }
     } catch (error) {
       // Error toast already shown by AuthContext
     } finally {
@@ -116,7 +137,28 @@ const Login = () => {
   const handleChangeNumber = () => {
     setStep("mobile");
     setOtp("");
+    setName("");
     setResendTimer(0);
+  };
+
+  const handleCompleteProfile = async (e) => {
+    e.preventDefault();
+    if (name.trim().length < 2) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await completeProfile({
+        mobile,
+        name: name.trim(),
+      });
+      navigate(redirectPath, { replace: true });
+    } catch (error) {
+      // Error toast already shown by AuthContext
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -141,66 +183,75 @@ const Login = () => {
                 Welcome Back
               </span>
               <h1 className="font-outfit text-3xl font-light text-bree-text-primary mt-2">
-                Sign In
+                {step === "profile" ? "Welcome to BREE" : "Sign In"}
               </h1>
+              {step === "profile" && (
+                <p className="text-sm text-bree-text-secondary mt-3">
+                  Please tell us your name to finish creating your account.
+                </p>
+              )}
             </div>
 
             {/* Google Login Button */}
-            <button
-              onClick={async () => {
-                try {
-                  setIsLoading(true);
-                  await loginWithGoogle();
-                  navigate(redirectPath, { replace: true });
-                } catch (error) {
-                  // error handled in AuthContext
-                } finally {
-                  setIsLoading(false);
-                }
-              }}
-              data-testid="google-login-btn"
-              disabled={authenticating || isLoading}
-              className="w-full flex items-center justify-center gap-3 px-6 py-4 border border-bree-border rounded-full hover:bg-bree-bg transition-colors mb-6 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24">
-                <path
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
-                  fill="#4285F4"
-                />
-                <path
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  fill="#34A853"
-                />
-                <path
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                  fill="#FBBC05"
-                />
-                <path
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  fill="#EA4335"
-                />
-              </svg>
-              {authenticating ? (
-                <span className="flex items-center gap-2 font-medium text-bree-text-primary">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Signing in...
-                </span>
-              ) : (
-                <span className="font-medium text-bree-text-primary">
-                  Continue with Google
-                </span>
-              )}
-            </button>
+            {step !== "profile" && (
+              <>
+                <button
+                  onClick={async () => {
+                    try {
+                      setIsLoading(true);
+                      await loginWithGoogle();
+                      navigate(redirectPath, { replace: true });
+                    } catch (error) {
+                      // error handled in AuthContext
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }}
+                  data-testid="google-login-btn"
+                  disabled={authenticating || isLoading}
+                  className="w-full flex items-center justify-center gap-3 px-6 py-4 border border-bree-border rounded-full hover:bg-bree-bg transition-colors mb-6 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24">
+                    <path
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
+                      fill="#4285F4"
+                    />
+                    <path
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      fill="#34A853"
+                    />
+                    <path
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                      fill="#FBBC05"
+                    />
+                    <path
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      fill="#EA4335"
+                    />
+                  </svg>
+                  {authenticating ? (
+                    <span className="flex items-center gap-2 font-medium text-bree-text-primary">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Signing in...
+                    </span>
+                  ) : (
+                    <span className="font-medium text-bree-text-primary">
+                      Continue with Google
+                    </span>
+                  )}
+                </button>
 
-            {/* Divider */}
-            <div className="flex items-center gap-4 mb-6">
-              <div className="flex-1 h-px bg-bree-border" />
-              <span className="text-sm text-bree-text-secondary">or</span>
-              <div className="flex-1 h-px bg-bree-border" />
-            </div>
+                {/* Divider */}
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="flex-1 h-px bg-bree-border" />
+                  <span className="text-sm text-bree-text-secondary">or</span>
+                  <div className="flex-1 h-px bg-bree-border" />
+                </div>
+              </>
+            )}
 
             {/* Mobile OTP Form */}
-            {step === "mobile" ? (
+            {step === "mobile" && (
               <form
                 onSubmit={handleSendOtp}
                 className="space-y-4"
@@ -250,7 +301,10 @@ const Login = () => {
                   )}
                 </Button>
               </form>
-            ) : (
+            )}
+
+            {/* OTP Verify Form */}
+            {step === "otp" && (
               <form
                 onSubmit={handleVerifyOtp}
                 className="space-y-4"
@@ -319,6 +373,64 @@ const Login = () => {
                     ? `Resend OTP in ${resendTimer}s`
                     : "Resend OTP"}
                 </button>
+              </form>
+            )}
+
+            {/* Complete Profile Form */}
+            {step === "profile" && (
+              <form
+                onSubmit={handleCompleteProfile}
+                className="space-y-4"
+                data-testid="complete-profile-form"
+              >
+                <div className="rounded-xl bg-bree-bg px-4 py-3">
+                  <p className="text-xs uppercase tracking-wide text-bree-text-secondary">
+                    Mobile Number
+                  </p>
+                  <p className="text-bree-text-primary font-medium mt-0.5">
+                    +91 {mobile}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="name" className="text-bree-text-primary">
+                    Full Name
+                  </Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bree-text-secondary" />
+                    <Input
+                      ref={nameInputRef}
+                      id="name"
+                      name="name"
+                      type="text"
+                      autoComplete="name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Enter your full name"
+                      data-testid="profile-name"
+                      className="pl-10 rounded-xl border-bree-border"
+                    />
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={isLoading || name.trim().length < 2}
+                  data-testid="complete-profile-btn"
+                  className="w-full bg-bree-primary hover:bg-bree-primary-hover text-white py-6 rounded-full font-medium"
+                >
+                  {isLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Saving...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      Continue
+                      <ArrowRight className="w-5 h-5" />
+                    </span>
+                  )}
+                </Button>
               </form>
             )}
           </motion.div>

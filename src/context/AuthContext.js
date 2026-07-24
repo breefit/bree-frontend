@@ -189,6 +189,14 @@ export const AuthProvider = ({ children }) => {
         mobile,
         otp,
       });
+
+      // New user — hand off to the profile-completion step without
+      // logging them in yet. No user/token/session side effects here.
+      if (response.data?.isNewUser === true) {
+        return response.data;
+      }
+
+      // Existing user — continue the existing login flow unchanged.
       setUser(response.data);
       if (response.data?.accessToken) {
         localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
@@ -211,6 +219,25 @@ export const AuthProvider = ({ children }) => {
       return response.data;
     } catch (error) {
       toast.error(getApiErrorMessage(error) || "Failed to resend OTP.");
+      throw error;
+    }
+  };
+
+  const completeProfile = async ({ mobile, name }) => {
+    try {
+      const response = await axios.post("/api/auth/complete-profile", {
+        mobile,
+        name,
+      });
+      setUser(response.data);
+      if (response.data?.accessToken) {
+        localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
+      }
+      broadcastAuthEvent("login");
+      toast.success("Welcome to BREE!");
+      return response.data;
+    } catch (error) {
+      toast.error(getApiErrorMessage(error) || "Failed to complete profile.");
       throw error;
     }
   };
@@ -241,6 +268,7 @@ export const AuthProvider = ({ children }) => {
         sendOtp,
         verifyOtp,
         resendOtp,
+        completeProfile,
         logout,
         checkAuth,
       }}
