@@ -247,6 +247,7 @@ function AppRouter() {
               </ProtectedRoute>
             }
           />
+          <Route path="/order/:id" element={<OrderRedirect />} />
           <Route path="/order/:id/tracking" element={<OrderTracking />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
