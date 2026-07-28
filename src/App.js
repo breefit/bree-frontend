@@ -17,6 +17,7 @@ const CheckoutSuccess = lazy(() => import("@/pages/CheckoutSuccess"));
 const Login = lazy(() => import("@/pages/Login"));
 const Register = lazy(() => import("@/pages/Register")); // FIX: Register page was imported in routes but missing lazy import
 const Profile = lazy(() => import("@/pages/Profile"));
+import OrderRedirect from "./pages/OrderRedirect";
 const OrderTracking = lazy(() => import("@/pages/OrderTracking"));
 const Support = lazy(() => import("@/pages/Support"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
