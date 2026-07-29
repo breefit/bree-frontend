@@ -100,6 +100,7 @@ const Checkout = () => {
   const [showCartModal, setShowCartModal] = useState(false);
   const [cartModalItems, setCartModalItems] = useState([]);
   const [acceptedChanges, setAcceptedChanges] = useState(false);
+  const [selectedAddress, setSelectedAddress] = useState(null);
   const hasInitialisedRef = useRef(false);
 
   const isLoading = loadingPhase !== "idle";
@@ -149,6 +150,7 @@ const Checkout = () => {
           ? addressRes.value.data
           : [];
         const addr = list.find((a) => a.is_default) || list[0] || null;
+        setSelectedAddress(addr);
       }
     } catch (err) {
       // Non-fatal — payment flow has its own error handling
@@ -181,6 +183,11 @@ const Checkout = () => {
       return;
     }
     if (isLoading) return;
+
+    if (!selectedAddress) {
+      toast.error("Please add a delivery address before proceeding.");
+      return;
+    }
 
     try {
       // ── Re-sync cart before payment ──────────────────────────────────────
@@ -232,24 +239,46 @@ const Checkout = () => {
       // shippingAddress at order-creation time (for the DB record).
       // Razorpay Magic Checkout collects and confirms the final details
       // (name, phone, email, shipping address) during the payment popup.
+      const addressId =
+        selectedAddress?.id ??
+        selectedAddress?.address_id ??
+        selectedAddress?.addressId ??
+        selectedAddress?.uuid ??
+        null;
+
       const createOrderPayload = {
         amount: orderTotal,
         currency: "INR",
+
+        addressId,
+
+        customerName: profile?.name || "Guest",
+        email: profile?.email || "",
+        mobileNumber: profile?.phone || "",
+
+        // Keep for backward compatibility
+        shippingAddress: null,
+
         items: cartItems.map((item) => ({
           product_id: item.id,
           quantity: item.quantity,
           name: item.name,
           price: item.price,
         })),
+
         line_items: lineItems,
         line_items_total: lineItemsTotal,
-        customerName: profile?.name || "Guest",
-        email: profile?.email || "",
-        mobileNumber: profile?.phone || "",
-        // Use the user's saved default address as the pre-auth shipping address.
-        // If no address is saved, Magic Checkout will collect one from the customer.
-        shippingAddress: undefined,
       };
+
+      console.log("========== CHECKOUT ==========");
+      console.log("Selected Address:", selectedAddress);
+      console.log("Profile:", profile);
+      console.log("Create Order Payload:", createOrderPayload);
+      console.log("==============================");
+
+      if (!addressId) {
+        console.log("Address Object:", selectedAddress);
+      }
 
       // console.log(
       //   "[Checkout] Creating order — request payload:",
