@@ -8,6 +8,15 @@ import { toast } from "sonner";
 import { loadRazorpayScript, openRazorpayCheckout } from "@/lib/razorpayLoader";
 import CartUpdateModal from "@/components/CartUpdateModal";
 
+// ── Dev-only logger ────────────────────────────────────────────────────────
+// Keeps debugging visibility in development while staying silent in
+// production builds.
+const devLog = (...args) => {
+  if (import.meta.env.DEV) {
+    console.log(...args);
+  }
+};
+
 // ── Magic Checkout helpers ────────────────────────────────────────────────────
 
 /**
@@ -47,6 +56,49 @@ const buildLineItems = (cartItems) =>
 const buildLineItemsTotal = (lineItems) =>
   lineItems.reduce((sum, item) => sum + item.offer_price * item.quantity, 0);
 
+/**
+ * Build the cart-facing `items` array sent alongside line_items for the
+ * order-creation request (kept separate from line_items, which is the
+ * Razorpay-specific shape).
+ */
+const buildOrderItems = (cartItems) =>
+  cartItems.map((item) => ({
+    product_id: item.id,
+    quantity: item.quantity,
+    name: item.name,
+    price: item.price,
+  }));
+
+/**
+ * Confirms the Razorpay order-creation response has everything required to
+ * safely open the checkout popup.
+ */
+const isValidRazorpayOrder = (data) =>
+  Boolean(data?.key_id && data?.order_id && data?.amount);
+
+/**
+ * Confirms the Razorpay success handler response has the three fields
+ * required to call the backend verification endpoint.
+ */
+const isValidRazorpayResponse = (response) =>
+  Boolean(
+    response?.razorpay_order_id &&
+    response?.razorpay_payment_id &&
+    response?.razorpay_signature,
+  );
+
+/**
+ * Returns a safe, user-facing error message. Never surfaces raw server /
+ * network error text to the UI.
+ */
+const getFriendlyErrorMessage = (err, fallback) => {
+  if (!err) return fallback;
+  if (err.code === "ERR_NETWORK" || err.message === "Network Error") {
+    return "Network issue. Please check your connection and try again.";
+  }
+  return fallback;
+};
+
 const getShippingDisplay = (item) => {
   const isFree =
     item?.is_free_shipping === true ||
@@ -75,6 +127,7 @@ const getShippingDisplay = (item) => {
 // ── Loading phase labels shown to the user ────────────────────────────────────
 const LOADING_PHASE = {
   idle: null,
+  syncing: "Checking your cart…",
   creating: "Preparing your order…",
   opening: "Opening payment…",
   verifying: "Verifying payment…",
@@ -89,23 +142,22 @@ const Checkout = () => {
   const orderShipping = Number(cartShipping ?? 0);
   const orderTotal = orderSubtotal + orderShipping;
 
-  // console.log("[Checkout] cartTotal", orderSubtotal);
-  // console.log("[Checkout] cartShipping", orderShipping);
-  // console.log("[Checkout] finalTotal", orderTotal);
+  devLog("[Checkout] cartTotal", orderSubtotal);
+  devLog("[Checkout] cartShipping", orderShipping);
+  devLog("[Checkout] finalTotal", orderTotal);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isInitialising, setIsInitialising] = useState(true);
-  const [loadingPhase, setLoadingPhase] = useState("idle"); // idle | creating | opening | verifying
+  const [loadingPhase, setLoadingPhase] = useState("idle"); // idle | syncing | creating | opening | verifying
   const [profile, setProfile] = useState(null); // { name, email, phone }
   const [showCartModal, setShowCartModal] = useState(false);
   const [cartModalItems, setCartModalItems] = useState([]);
   const [acceptedChanges, setAcceptedChanges] = useState(false);
-  const [selectedAddress, setSelectedAddress] = useState(null);
   const hasInitialisedRef = useRef(false);
 
   const isLoading = loadingPhase !== "idle";
 
-  // ── On mount: sync cart, fetch profile + addresses silently ───────────────
+  // ── On mount: sync cart, fetch profile for Razorpay prefill ───────────────
   const initialise = useCallback(async () => {
     setIsInitialising(true);
     try {
@@ -129,32 +181,30 @@ const Checkout = () => {
         }
       }
 
-      // 2. Fetch profile and addresses in parallel (silent — used only for
-      //    create-order payload and Razorpay prefill, not shown in the UI)
-      const [profileRes, addressRes] = await Promise.allSettled([
-        axios.get("/api/profile"),
-        axios.get("/api/addresses"),
-      ]);
-
-      if (profileRes.status === "fulfilled") {
-        const p = profileRes.value.data;
+      // 2. Fetch profile for Razorpay prefill (name/email/phone).
+      //    Magic Checkout collects the delivery address itself, so no
+      //    address lookup is needed here.
+      try {
+        const profileRes = await axios.get("/api/profile");
+        const p = profileRes.data;
         setProfile({
           name: p.name || "",
           email: p.email || "",
           phone: p.phone || "",
         });
-      }
-
-      if (addressRes.status === "fulfilled") {
-        const list = Array.isArray(addressRes.value.data)
-          ? addressRes.value.data
-          : [];
-        const addr = list.find((a) => a.is_default) || list[0] || null;
-        setSelectedAddress(addr);
+      } catch (profileErr) {
+        // Non-fatal — Razorpay prefill just falls back to empty fields.
+        devLog("[Checkout] Profile fetch failed:", profileErr);
+        toast.error(
+          getFriendlyErrorMessage(
+            profileErr,
+            "Couldn't load your saved details. You can still enter them during payment.",
+          ),
+        );
       }
     } catch (err) {
       // Non-fatal — payment flow has its own error handling
-      console.error("[Checkout] Initialisation error:", err);
+      devLog("[Checkout] Initialisation error:", err);
     } finally {
       setIsInitialising(false);
     }
@@ -182,15 +232,12 @@ const Checkout = () => {
       toast.error("Your cart is empty.");
       return;
     }
+    // Guard against duplicate clicks while any phase of the flow is active.
     if (isLoading) return;
-
-    if (!selectedAddress) {
-      toast.error("Please add a delivery address before proceeding.");
-      return;
-    }
 
     try {
       // ── Re-sync cart before payment ──────────────────────────────────────
+      setLoadingPhase("syncing");
       const syncResult = await syncCart();
       if (syncResult?.anyChange && !acceptedChanges) {
         const flagged = (syncResult.items || []).filter(
@@ -216,11 +263,8 @@ const Checkout = () => {
       const lineItems = buildLineItems(cartItems);
       const lineItemsTotal = buildLineItemsTotal(lineItems);
 
-      // console.log("[Checkout] Computed line_items:", lineItems);
-      // console.log(
-      //   "[Checkout] Computed line_items_total (paise):",
-      //   lineItemsTotal,
-      // );
+      devLog("[Checkout] Computed line_items:", lineItems);
+      devLog("[Checkout] Computed line_items_total (paise):", lineItemsTotal);
 
       if (!lineItems.length) {
         toast.error("Your cart is empty.");
@@ -235,69 +279,71 @@ const Checkout = () => {
         return;
       }
 
-      // The backend also requires customerName, email, mobileNumber, and
-      // shippingAddress at order-creation time (for the DB record).
-      // Razorpay Magic Checkout collects and confirms the final details
-      // (name, phone, email, shipping address) during the payment popup.
-      const addressId =
-        selectedAddress?.id ??
-        selectedAddress?.address_id ??
-        selectedAddress?.addressId ??
-        selectedAddress?.uuid ??
-        null;
-
+      // The backend also requires customerName, email, and mobileNumber at
+      // order-creation time (for the DB record). shippingAddress is
+      // intentionally left undefined — Razorpay Magic Checkout collects and
+      // confirms the final delivery details (name, phone, email, address)
+      // inside the payment popup itself.
       const createOrderPayload = {
         amount: orderTotal,
         currency: "INR",
-
-        addressId,
-
+        items: buildOrderItems(cartItems),
+        line_items: lineItems,
+        line_items_total: lineItemsTotal,
         customerName: profile?.name || "Guest",
         email: profile?.email || "",
         mobileNumber: profile?.phone || "",
-
-        // Keep for backward compatibility
-        shippingAddress: null,
-
-        items: cartItems.map((item) => ({
-          product_id: item.id,
-          quantity: item.quantity,
-          name: item.name,
-          price: item.price,
-        })),
-
-        line_items: lineItems,
-        line_items_total: lineItemsTotal,
+        // Magic Checkout collects the delivery address during payment.
+        shippingAddress: undefined,
       };
 
-      console.log("========== CHECKOUT ==========");
-      console.log("Selected Address:", selectedAddress);
-      console.log("Profile:", profile);
-      console.log("Create Order Payload:", createOrderPayload);
-      console.log("==============================");
-
-      if (!addressId) {
-        console.log("Address Object:", selectedAddress);
-      }
-
-      // console.log(
-      //   "[Checkout] Creating order — request payload:",
-      //   createOrderPayload,
-      // );
-      const paymentResponse = await axios.post(
-        "/api/payment/create-order",
+      devLog(
+        "[Checkout] Creating order — request payload:",
         createOrderPayload,
       );
-      const razorpayOrder = paymentResponse.data;
-      // console.log("[Checkout] Creating order — response:", razorpayOrder);
+
+      let razorpayOrder;
+      try {
+        const paymentResponse = await axios.post(
+          "/api/payment/create-order",
+          createOrderPayload,
+        );
+        razorpayOrder = paymentResponse.data;
+      } catch (createErr) {
+        devLog("[Checkout] Create-order failed:", createErr);
+        toast.error(
+          getFriendlyErrorMessage(
+            createErr,
+            "We couldn't start your order. Please try again.",
+          ),
+        );
+        setLoadingPhase("idle");
+        return;
+      }
+
+      devLog("[Checkout] Creating order — response:", razorpayOrder);
+
+      // Hard-fail fast with a friendly message rather than letting the SDK
+      // open with missing key/order_id/amount (which produces cryptic
+      // Razorpay SDK errors like "Authentication key was missing").
+      if (!isValidRazorpayOrder(razorpayOrder)) {
+        devLog("[Checkout] Invalid order response:", razorpayOrder);
+        toast.error(
+          "Something went wrong while preparing your payment. Please try again.",
+        );
+        setLoadingPhase("idle");
+        return;
+      }
 
       // ── STEP 2: Load Razorpay SDK ─────────────────────────────────────────
       setLoadingPhase("opening");
       try {
         await loadRazorpayScript();
       } catch (loadErr) {
-        // console.error("[Checkout] Script load failed:", loadErr);
-        toast.error("Failed to load payment gateway. Please try again.");
+        devLog("[Checkout] Script load failed:", loadErr);
+        toast.error(
+          "Failed to load the payment gateway. Please check your connection and try again.",
+        );
         setLoadingPhase("idle");
         return;
       }
@@ -358,7 +404,18 @@ const Checkout = () => {
         // backend should independently fetch authoritative customer_details
         // via Razorpay's Fetch Order API after verification.
         handler: async (response) => {
-          // console.log("[Checkout] Payment success:", response);
+          devLog("[Checkout] Payment success:", response);
+
+          // Validate the payload Razorpay handed back before trusting it
+          // with a verification call.
+          if (!isValidRazorpayResponse(response)) {
+            devLog("[Checkout] Incomplete Razorpay response:", response);
+            toast.error(
+              "We couldn't confirm your payment details. If money was deducted, please contact support.",
+            );
+            setLoadingPhase("idle");
+            return;
+          }
 
           setLoadingPhase("verifying");
 
@@ -384,9 +441,9 @@ const Checkout = () => {
               verifyPayload,
             );
 
-            // console.log("[Checkout] Verify response:", verifyResponse.data);
+            devLog("[Checkout] Verify response:", verifyResponse.data);
 
-            if (!verifyResponse.data.success) {
+            if (!verifyResponse?.data?.success) {
               throw new Error(
                 verifyResponse.data.message || "Payment verification failed",
               );
@@ -394,8 +451,8 @@ const Checkout = () => {
 
             const savedOrderId = verifyResponse.data.order_id;
 
-            // console.log("[Checkout] Saved Order ID:", savedOrderId);
-            // console.log("[Checkout] Navigating to success page...");
+            devLog("[Checkout] Saved Order ID:", savedOrderId);
+            devLog("[Checkout] Navigating to success page...");
 
             navigate(`/checkout/success?orderId=${savedOrderId}`, {
               replace: true,
@@ -403,12 +460,13 @@ const Checkout = () => {
 
             // Do NOT clear cart here
           } catch (verifyErr) {
-            console.error("[Checkout] Verify failed:", verifyErr);
+            devLog("[Checkout] Verify failed:", verifyErr);
 
             toast.error(
-              verifyErr?.response?.data?.message ||
-                verifyErr.message ||
-                "Payment verification failed",
+              getFriendlyErrorMessage(
+                verifyErr,
+                "We couldn't verify your payment. If money was deducted, please contact support.",
+              ),
             );
 
             setLoadingPhase("idle");
@@ -416,47 +474,23 @@ const Checkout = () => {
         },
       };
 
-      // ── STEP 4: Validate + open Razorpay Magic Checkout ───────────────────
-      // console.log("=================================");
-      // console.log("MAGIC CHECKOUT FULL OPTIONS");
-      // console.log(JSON.stringify(checkoutOptions, null, 2));
-      // console.log("=================================");
-      // console.log("[Checkout] Razorpay options before opening:", {
-      //   key: checkoutOptions.key,
-      //   order_id: checkoutOptions.order_id,
-      //   amount: checkoutOptions.amount,
-      //   one_click_checkout: checkoutOptions.one_click_checkout,
-      // });
+      devLog("[Checkout] Opening Razorpay Magic Checkout", {
+        orderId: checkoutOptions.order_id,
+        amount: checkoutOptions.amount,
+        currency: checkoutOptions.currency,
+      });
 
-      // Hard-fail fast with a clear message rather than letting the SDK
-      // open with undefined key/order_id (which produces the cryptic
-      // "Authentication key was missing during initialization" error).
-      if (!checkoutOptions.key) {
-        throw new Error("Razorpay key missing");
-      }
-      if (!checkoutOptions.order_id) {
-        throw new Error("Razorpay order_id missing");
-      }
-
-      // console.log("[Checkout] Opening Razorpay Magic Checkout", {
-      //   orderId: checkoutOptions.order_id,
-      //   amount: checkoutOptions.amount,
-      //   currency: checkoutOptions.currency,
-      // });
-
+      // ── STEP 4: Open Razorpay Magic Checkout ───────────────────────────────
       try {
         await openRazorpayCheckout(checkoutOptions);
-
-        // console.log("[Checkout] Razorpay popup closed successfully");
+        devLog("[Checkout] Razorpay popup closed successfully");
       } catch (error) {
-        console.error("[Checkout] Razorpay checkout failed:", error);
+        devLog("[Checkout] Razorpay checkout failed:", error);
 
         if (error?.message === "Payment cancelled") {
           toast.info("Payment cancelled. You can retry anytime.");
         } else {
-          toast.error(
-            error?.message || "Unable to process payment. Please try again.",
-          );
+          toast.error("Unable to process payment. Please try again.");
         }
 
         throw error; // let outer catch handle cleanup
@@ -467,13 +501,14 @@ const Checkout = () => {
         toast.info("Payment cancelled. You can retry anytime.");
       } else {
         toast.error(
-          err?.response?.data?.message ||
-            err?.message ||
+          getFriendlyErrorMessage(
+            err,
             "Failed to process payment. Please try again.",
+          ),
         );
       }
 
-      console.error("[Checkout] Payment flow error:", err);
+      devLog("[Checkout] Payment flow error:", err);
     } finally {
       // Reset to idle unless verification is running
       setLoadingPhase((prev) => (prev !== "verifying" ? "idle" : prev));
