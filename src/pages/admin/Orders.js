@@ -1198,27 +1198,19 @@ const Orders = () => {
     [applyStatusChange],
   );
 
+  // ===== Modified =====
+  // ── Delhivery: create shipment ──────────────────────────────────────────
+  // Backend now only supports POST /api/shipping/create-shipment/:orderId.
+  // The legacy fallback to POST /api/shipping/create-shipment (with orderId
+  // in the body) has been removed — exactly one request is made.
   const handleShipOrder = useCallback(
     async (orderId) => {
       try {
-        let res;
-        try {
-          res = await axios.post(
-            "/api/shipping/create-shipment",
-            { orderId },
-            AUTH(),
-          );
-        } catch (err) {
-          if (err?.response?.status === 404 || err?.response?.status === 400) {
-            res = await axios.post(
-              `/api/shipping/create-shipment/${orderId}`,
-              {},
-              AUTH(),
-            );
-          } else {
-            throw err;
-          }
-        }
+        const res = await axios.post(
+          `/api/shipping/create-shipment/${orderId}`,
+          {},
+          AUTH(),
+        );
 
         const createdOrder = res?.data?.order || {};
         const mergedOrder = {
@@ -1256,6 +1248,7 @@ const Orders = () => {
     },
     [fetchOrders],
   );
+  // ===== End Modified =====
 
   // ===== Modified =====
   // ── Delhivery: cancel shipment (mirrors handleShipOrder's pattern) ──────
