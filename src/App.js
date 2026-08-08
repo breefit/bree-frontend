@@ -42,6 +42,10 @@ const SubscriptionAnalytics = lazy(
 );
 
 const SubscriptionCheckout = lazy(() => import("@/pages/SubscriptionCheckout"));
+const BulkQuoteApproval = lazy(() => import("@/pages/BulkQuoteApproval"));
+const BulkPayment = lazy(() => import("@/pages/BulkPayment"));
+const BulkPaymentSuccess = lazy(() => import("@/pages/BulkPaymentSuccess"));
+const BulkPaymentFailed = lazy(() => import("@/pages/BulkPaymentFailed"));
 
 const SubscriptionSuccess = lazy(() => import("@/pages/SubscriptionSuccess"));
 const MySubscriptions = lazy(() => import("@/pages/MySubscriptions"));
@@ -204,6 +208,19 @@ function AppRouter() {
             }
           />
           <Route path="/checkout/success" element={<CheckoutSuccess />} />
+          {/* FIX (audit): the "Quote Ready" email has always linked here
+              (bulkNotificationService.notifyQuoteReady) but no route/page
+              existed — customers had no way to approve their quote. */}
+          <Route path="/bulk-order/:bookingId" element={<BulkQuoteApproval />} />
+          <Route path="/bulk-order/:bookingId/pay" element={<BulkPayment />} />
+          <Route
+            path="/bulk-order/payment-success"
+            element={<BulkPaymentSuccess />}
+          />
+          <Route
+            path="/bulk-order/payment-failed"
+            element={<BulkPaymentFailed />}
+          />
           <Route
             path="/subscription-checkout"
             element={

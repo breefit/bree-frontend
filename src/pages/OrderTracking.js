@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import axios from "@/lib/api";
 import { Loader2 } from "lucide-react";
@@ -332,6 +332,31 @@ const OrderTracking = () => {
 
   if (!order) return null;
 
+  // FIX (Return/Refund audit, requirement 13): this panel is support-only —
+  // it has never let the customer create a return shipment, and that stays
+  // true here (no action added below beyond the existing contact links).
+  // What was broken is that "contact within 48 hours" was static copy shown
+  // for as long as the order stayed delivered with no return on file, even
+  // long after the window had actually closed. Computed against the real
+  // delivered_at now, mirroring the same formula the backend enforces
+  // (isReturnWindowOpen() in returnController.js) — this is still only a
+  // display concern; the backend independently re-verifies eligibility on
+  // every admin action regardless of what this page shows.
+  const RETURN_WINDOW_HOURS = 48;
+  const returnDeadline = order?.delivered_at
+    ? new Date(
+        new Date(order.delivered_at).getTime() +
+          RETURN_WINDOW_HOURS * 60 * 60 * 1000,
+      )
+    : null;
+  const isReturnWindowOpen = Boolean(
+    returnDeadline && Date.now() <= returnDeadline.getTime(),
+  );
+
+  const canShowReturnSupport =
+    String(order?.order_status || "").toLowerCase() === "delivered" &&
+    !order?.return_status;
+
   return (
     <div className="pt-24 pb-12 min-h-screen bg-bree-bg">
       <Helmet>
@@ -444,6 +469,95 @@ const OrderTracking = () => {
                 </div>
               </div>
             </div>
+
+            {canShowReturnSupport && (
+              <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
+                <h3 className="font-semibold text-bree-text-primary mb-3">
+                  Returns & Support
+                </h3>
+
+                {!order?.delivered_at ? (
+                  <p className="text-sm text-bree-text-secondary leading-6">
+                    If you received a damaged, incorrect, or defective
+                    product, please contact <strong>BREE Support</strong>{" "}
+                    within <strong>48 hours of delivery</strong>. Our support
+                    team will verify your request and, if approved, arrange a
+                    return pickup.
+                  </p>
+                ) : isReturnWindowOpen ? (
+                  <p className="text-sm text-bree-text-secondary leading-6">
+                    Return requests must be raised within{" "}
+                    <strong>48 hours of delivery</strong>.{" "}
+                    <span className="font-medium text-emerald-700">
+                      Your return window is currently open.
+                    </span>{" "}
+                    If you received a damaged, incorrect, or defective
+                    product, please contact <strong>BREE Support</strong> — our
+                    team will verify your request and, if approved, arrange a
+                    return pickup.
+                  </p>
+                ) : (
+                  <p className="text-sm text-bree-text-secondary leading-6">
+                    <span className="font-medium text-red-600">
+                      Return window expired.
+                    </span>{" "}
+                    Return requests must be raised within 48 hours of
+                    delivery.
+                  </p>
+                )}
+
+                {/* FIX (requirement 13): once the window has closed, this
+                    panel stops presenting itself as an active return path —
+                    no quick-action tiles, no "keep photos ready" prompt. The
+                    customer can still reach general support via the site's
+                    normal navigation; this panel just no longer implies a
+                    return is still possible from here. */}
+                {(isReturnWindowOpen || !order?.delivered_at) && (
+                  <>
+                    <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                      <a
+                        href="https://wa.me/+919876543210"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-xl border border-green-200 bg-green-50 p-4 text-center hover:bg-green-100 transition"
+                      >
+                        📱 WhatsApp
+                      </a>
+
+                      <a
+                        href="mailto:care@breefit.in"
+                        className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-center hover:bg-blue-100 transition"
+                      >
+                        📧 Email
+                      </a>
+
+                      <Link
+                        to="/contact"
+                        className="rounded-xl border border-bree-border bg-bree-bg p-4 text-center hover:bg-white transition"
+                      >
+                        📞 Contact Support
+                      </Link>
+                    </div>
+
+                    <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 p-3">
+                      <p className="text-xs text-blue-700">
+                        Please keep your Order ID and photos/videos ready
+                        while contacting support. This helps us verify your
+                        request faster.
+                      </p>
+                    </div>
+
+                    <div className="mt-5 rounded-xl bg-amber-50 border border-amber-200 p-4">
+                      <p className="text-xs text-amber-700">
+                        Returns are accepted only after verification by the
+                        BREE Support team. If approved, BREE will arrange the
+                        return pickup.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <aside className="space-y-6">
