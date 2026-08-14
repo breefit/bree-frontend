@@ -26,6 +26,9 @@ const EMPTY_FORM = {
   is_free_shipping: true,
   shipping_charge: "",
   estimated_delivery: "3–7 Business Days",
+  is_recurring_package: false, // pay once, ship N times — distinct from is_subscription
+  package_duration_months: "", // number of fulfillment cycles
+  package_fulfillment_interval_days: "30", // gap between cycles
 };
 
 const JOURNEY_LEVEL_OPTIONS = [
@@ -46,6 +49,21 @@ const validate = (form, imageFile, isEdit) => {
   if (!form.description.trim()) errors.description = "Description required";
   if (!isEdit && !form.image && !imageFile) {
     errors.image = "Product image is required";
+  }
+  if (form.is_recurring_package) {
+    const duration = Number(form.package_duration_months);
+    if (!form.package_duration_months || !Number.isInteger(duration) || duration < 1) {
+      errors.package_duration_months =
+        "Enter the number of fulfillment cycles (a positive whole number)";
+    }
+    const interval = Number(form.package_fulfillment_interval_days);
+    if (
+      form.package_fulfillment_interval_days &&
+      (!Number.isInteger(interval) || interval < 1)
+    ) {
+      errors.package_fulfillment_interval_days =
+        "Interval must be a positive whole number of days";
+    }
   }
   return errors;
 };
@@ -79,11 +97,26 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
               initial.show_recommendations !== "0" &&
               initial.show_recommendations !== "false";
 
+        const is_recurring_package_bool =
+          initial.is_recurring_package === 1 ||
+          initial.is_recurring_package === true;
+
         const initialForm = {
           ...EMPTY_FORM,
           ...initial,
           is_subscription: is_subscription_bool,
           show_recommendations: show_recommendations_bool,
+          is_recurring_package: is_recurring_package_bool,
+          package_duration_months:
+            initial.package_duration_months !== undefined &&
+            initial.package_duration_months !== null
+              ? String(initial.package_duration_months)
+              : "",
+          package_fulfillment_interval_days:
+            initial.package_fulfillment_interval_days !== undefined &&
+            initial.package_fulfillment_interval_days !== null
+              ? String(initial.package_fulfillment_interval_days)
+              : "30",
           journey_level:
             initial.journey_level !== undefined &&
             initial.journey_level !== null
@@ -131,6 +164,15 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
       // Auto-disable show_recommendations when subscription is enabled
       if (key === "is_subscription" && value === true) {
         next.show_recommendations = false;
+      }
+      // Subscription (recurring billing) and recurring package (pay-once,
+      // ship-many) are mutually exclusive recurring models — enabling one
+      // turns the other off.
+      if (key === "is_subscription" && value === true) {
+        next.is_recurring_package = false;
+      }
+      if (key === "is_recurring_package" && value === true) {
+        next.is_subscription = false;
       }
       return next;
     });
@@ -183,6 +225,13 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
           form.journey_level !== "" ? Number(form.journey_level) : 0,
         show_recommendations: form.show_recommendations,
         is_subscription: form.is_subscription,
+        is_recurring_package: form.is_recurring_package,
+        package_duration_months: form.is_recurring_package
+          ? Number(form.package_duration_months)
+          : undefined,
+        package_fulfillment_interval_days: form.is_recurring_package
+          ? Number(form.package_fulfillment_interval_days || 30)
+          : undefined,
         is_free_shipping: form.is_free_shipping,
         shipping_charge: form.is_free_shipping
           ? 0
@@ -533,9 +582,85 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
                   <input
                     type="checkbox"
                     checked={form.is_subscription}
+                    disabled={form.is_recurring_package}
                     onChange={(e) => set("is_subscription", e.target.checked)}
                     className="w-5 h-5 accent-bree-primary"
                   />
+                </div>
+
+                {/* Recurring Package — pay once, ship N times. Mutually
+                    exclusive with Subscription (recurring billing). */}
+                <div className="border border-bree-border rounded-2xl px-4 py-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-bree-text-primary">
+                        Recurring Package
+                      </p>
+                      <p className="text-sm text-bree-text-secondary">
+                        Customer pays once; BREE ships one box per cycle
+                        automatically (no repeat charge)
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.is_recurring_package}
+                      disabled={form.is_subscription}
+                      onChange={(e) =>
+                        set("is_recurring_package", e.target.checked)
+                      }
+                      className="w-5 h-5 accent-bree-primary"
+                    />
+                  </div>
+
+                  {form.is_recurring_package && (
+                    <div className="grid gap-4 md:grid-cols-2 pt-1">
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-bree-text-primary">
+                          Number of Cycles
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={form.package_duration_months}
+                          onChange={(e) =>
+                            set("package_duration_months", e.target.value)
+                          }
+                          placeholder="e.g. 6"
+                          className="w-full h-12 px-4 rounded-2xl border border-bree-border outline-none focus:border-bree-primary"
+                        />
+                        {errors.package_duration_months && (
+                          <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            {errors.package_duration_months}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-bree-text-primary">
+                          Days Between Shipments
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={form.package_fulfillment_interval_days}
+                          onChange={(e) =>
+                            set(
+                              "package_fulfillment_interval_days",
+                              e.target.value,
+                            )
+                          }
+                          placeholder="30"
+                          className="w-full h-12 px-4 rounded-2xl border border-bree-border outline-none focus:border-bree-primary"
+                        />
+                        {errors.package_fulfillment_interval_days && (
+                          <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            {errors.package_fulfillment_interval_days}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Show Recommendations — hidden when subscription is on */}

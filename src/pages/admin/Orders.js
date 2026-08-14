@@ -1002,6 +1002,14 @@ const OrderModal = ({
                     Bulk Order
                   </span>
                 )}
+                {order.parent_package_id && (
+                  <span className="text-[10px] font-semibold uppercase px-2 py-1 rounded-full border border-blue-200 bg-blue-100 text-blue-700">
+                    Package Cycle {order.fulfillment_cycle}
+                    {order.package_total_cycles
+                      ? `/${order.package_total_cycles}`
+                      : ""}
+                  </span>
+                )}
               </div>
               <p className="text-bree-text-secondary text-xs mt-0.5">
                 {new Date(order.created_at).toLocaleString("en-IN", {
@@ -1055,6 +1063,53 @@ const OrderModal = ({
                       <p className="text-xs text-bree-text-secondary mb-1">
                         {label}
                       </p>
+                      <p className="text-sm font-medium text-bree-text-primary">
+                        {value || "—"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {order.parent_package_id && (
+              <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                <p className="text-xs text-blue-700 mb-4 uppercase tracking-wide font-medium">
+                  Recurring Package — Fulfillment Order
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    ["Package Number", order.package_number],
+                    [
+                      "Cycle",
+                      order.package_total_cycles
+                        ? `${order.fulfillment_cycle} of ${order.package_total_cycles}`
+                        : String(order.fulfillment_cycle ?? "—"),
+                    ],
+                    [
+                      "Package Status",
+                      order.package_status
+                        ? order.package_status[0].toUpperCase() +
+                          order.package_status.slice(1)
+                        : "—",
+                    ],
+                    [
+                      "Next Fulfillment",
+                      order.package_next_fulfillment_date
+                        ? new Date(
+                            order.package_next_fulfillment_date,
+                          ).toLocaleDateString("en-IN", {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : order.package_status === "completed"
+                          ? "Package complete"
+                          : "—",
+                    ],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <p className="text-xs text-blue-700/70 mb-1">{label}</p>
                       <p className="text-sm font-medium text-bree-text-primary">
                         {value || "—"}
                       </p>
@@ -2990,6 +3045,14 @@ const Orders = () => {
                           {order.is_bulk_order === 1 && (
                             <span className="text-[10px] font-semibold px-2 py-1 rounded-full border border-slate-200 bg-slate-100 text-slate-700">
                               Bulk Order
+                            </span>
+                          )}
+                          {order.parent_package_id && (
+                            <span className="text-[10px] font-semibold px-2 py-1 rounded-full border border-blue-200 bg-blue-100 text-blue-700">
+                              Cycle {order.fulfillment_cycle}
+                              {order.package_total_cycles
+                                ? `/${order.package_total_cycles}`
+                                : ""}
                             </span>
                           )}
                         </div>

@@ -119,6 +119,20 @@ const Products = () => {
           data.is_subscription ? "true" : "false",
         );
         formData.append(
+          "is_recurring_package",
+          data.is_recurring_package ? "true" : "false",
+        );
+        if (data.is_recurring_package) {
+          formData.append(
+            "package_duration_months",
+            String(data.package_duration_months || ""),
+          );
+          formData.append(
+            "package_fulfillment_interval_days",
+            String(data.package_fulfillment_interval_days || 30),
+          );
+        }
+        formData.append(
           "journey_level",
           data.journey_level !== undefined ? String(data.journey_level) : "0",
         );
@@ -332,6 +346,11 @@ const Products = () => {
                                     Subscription
                                   </span>
                                 )}
+                                {product.is_recurring_package === 1 && (
+                                  <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">
+                                    Package · {product.package_duration_months}x
+                                  </span>
+                                )}
                                 {!product.is_active && (
                                   <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
                                     Inactive
@@ -468,6 +487,11 @@ const Products = () => {
                             {product.is_subscription === 1 && (
                               <span className="text-[10px] bg-purple-100 text-purple-600 px-2 py-1 rounded-full">
                                 Sub
+                              </span>
+                            )}
+                            {product.is_recurring_package === 1 && (
+                              <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded-full">
+                                Package · {product.package_duration_months}x
                               </span>
                             )}
                           </div>
