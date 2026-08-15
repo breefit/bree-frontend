@@ -70,8 +70,18 @@ const DELHIVERY_SYNC_MESSAGE =
   "Shipping status is automatically synchronized from Delhivery.";
 
 // Returns true once a Delhivery shipment (AWB) has been created for the order.
+// FIX (Delhivery shipment audit): `awb_number` — the actual column name
+// returned by GET /api/admin/orders and /api/admin/orders/:id — was missing
+// from this check, so the AWB was never recognized after a page refresh
+// (only the locally-merged `delhivery_awb` key set right after clicking
+// "Ship with Delhivery" happened to match).
 const hasAwbShipment = (order) =>
-  Boolean(order?.delhivery_awb || order?.awbNumber || order?.awb);
+  Boolean(
+    order?.delhivery_awb ||
+      order?.awb_number ||
+      order?.awbNumber ||
+      order?.awb,
+  );
 // ===== End Added =====
 
 const DATE_RANGES = [
@@ -695,8 +705,14 @@ const OrderModal = ({
 
   const orderStatus = normalizeStatus(order.order_status || order.status);
   const items = Array.isArray(order.items) ? order.items : [];
+  // FIX (Delhivery shipment audit): `awb_number` is the real persisted/API
+  // field name — see hasAwbShipment() above for the same fix.
   const shipmentAwb =
-    order.delhivery_awb || order.awbNumber || order.awb || null;
+    order.delhivery_awb ||
+    order.awb_number ||
+    order.awbNumber ||
+    order.awb ||
+    null;
   const shipmentTracking =
     order.delhivery_tracking_number ||
     order.trackingNumber ||

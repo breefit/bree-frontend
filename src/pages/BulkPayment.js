@@ -584,14 +584,16 @@ export default function BulkPayment() {
         return;
       }
 
-      // FIX (Standard Checkout for Bulk Orders): the customer already
-      // supplied the complete delivery address on the original Bulk Booking
-      // form — Razorpay's checkout has nothing left to collect, so this is
-      // a plain Razorpay Order (Standard Checkout), not Magic Checkout.
-      // No one_click_checkout, no line_items/line_items_total: those only
-      // mattered for Magic Checkout's in-popup order summary and its
-      // account-wide Shipping Info webhook dependency, neither of which
-      // applies here.
+      // MIGRATION (Standard Checkout → Magic Checkout): the Bulk Request
+      // form no longer collects a complete delivery address — only a
+      // single "Enquiry Address" reference field — so there is nothing left
+      // for Razorpay's checkout UI to prefill. Magic Checkout now collects
+      // the customer's final shipping address itself, inside the popup.
+      // one_click_checkout is the field that actually activates Magic
+      // Checkout (mirrors Checkout.js's normal-cart flow); line_items /
+      // line_items_total describe the single bulk-order line for the
+      // in-popup order summary — the backend already set these on the
+      // Razorpay Order itself when it was created.
       await openRazorpayCheckout({
         key_id: key,
         key: key,
@@ -600,6 +602,8 @@ export default function BulkPayment() {
         currency: currency || "INR",
         name: "BREE Wellness",
         description: `Bulk Booking ${booking?.bookingNumber}`,
+        one_click_checkout: true,
+        show_coupons: false,
         prefill: {
           name: booking?.contactPerson,
           email: booking?.email,

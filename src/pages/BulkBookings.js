@@ -1,10 +1,15 @@
 import { useCallback, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+
+// Route this form lives on (see App.js) — used to send the user straight
+// back here after logging in, without auto-submitting on their behalf.
+const BULK_ORDER_ROUTE = "/bulk";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_REGEX = /^[6-9]\d{9}$/; // 10-digit Indian mobile number
-const PINCODE_REGEX = /^\d{6}$/; // 6-digit Indian PIN code
 
 // Single source of truth for the minimum bulk order quantity. Drives the marketing
 // copy (stat card + MOQ section) as well as the Estimated Quantity field's
@@ -20,10 +25,6 @@ const FIELD_MAX_LENGTHS = {
   contactPerson: 60,
   location: 100,
   requirements: REQUIREMENTS_MAX_LENGTH,
-  addressLine1: 255,
-  addressLine2: 255,
-  city: 100,
-  state: 100,
 };
 
 const SUCCESS_MESSAGE =
@@ -141,16 +142,6 @@ const INITIAL_FORM_STATE = {
   location: "",
   quantity: "",
   requirements: "",
-  // FIX (Magic Checkout for Bulk Orders): structured delivery address,
-  // required at submission time — this is what seeds Magic Checkout as the
-  // default/reference address. `location` above is kept exactly as-is
-  // (still optional, still sent) for backward compatibility.
-  addressLine1: "",
-  addressLine2: "",
-  city: "",
-  state: "",
-  pincode: "",
-  country: "India",
 };
 
 // CHANGE (Req #4): visual/tab order of fields, used to find the first invalid
@@ -160,11 +151,6 @@ const FIELD_ORDER = [
   "contactPerson",
   "email",
   "mobileNumber",
-  "addressLine1",
-  "addressLine2",
-  "city",
-  "state",
-  "pincode",
   "location",
   "quantity",
   "requirements",
@@ -179,6 +165,8 @@ const formatMobileForDisplay = (digits) => {
 };
 
 export default function BulkBookings() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
   const [errors, setErrors] = useState({});
@@ -213,25 +201,10 @@ export default function BulkBookings() {
       nextValue = value.replace(/\D/g, "");
     }
 
-    // Pincode: digits only, capped to 6 (same treatment as Mobile Number).
-    if (name === "pincode") {
-      nextValue = value.replace(/\D/g, "").slice(0, 6);
-    }
-
     // CHANGE (Req #5 - auto clean): collapse consecutive spaces as the user types.
     // A single trailing space while typing is left alone (final trim happens on
     // blur/submit) so users can still type multi-word values normally.
-    if (
-      [
-        "companyName",
-        "contactPerson",
-        "location",
-        "addressLine1",
-        "addressLine2",
-        "city",
-        "state",
-      ].includes(name)
-    ) {
+    if (["companyName", "contactPerson", "location"].includes(name)) {
       nextValue = value.replace(/ {2,}/g, " ");
     }
 
@@ -258,18 +231,7 @@ export default function BulkBookings() {
   // free-text fields, without touching validation logic.
   const handleBlurTrim = useCallback((e) => {
     const { name, value } = e.target;
-    if (
-      ![
-        "companyName",
-        "contactPerson",
-        "location",
-        "addressLine1",
-        "addressLine2",
-        "city",
-        "state",
-      ].includes(name)
-    )
-      return;
+    if (!["companyName", "contactPerson", "location"].includes(name)) return;
     const trimmed = value.replace(/ {2,}/g, " ").trim();
     if (trimmed === value) return;
     setFormData((prev) => ({ ...prev, [name]: trimmed }));
@@ -318,35 +280,6 @@ export default function BulkBookings() {
       nextErrors.mobileNumber = "Enter a valid 10-digit mobile number.";
     }
 
-    // FIX (Magic Checkout for Bulk Orders): delivery address is now required
-    // at submission time — it's the default/reference address Magic
-    // Checkout is seeded with. `location` below is unrelated and stays
-    // exactly as it was (optional, free text).
-    const addressLine1 = data.addressLine1.trim();
-    const city = data.city.trim();
-    const state = data.state.trim();
-    const pincode = data.pincode.trim();
-
-    if (!addressLine1) {
-      nextErrors.addressLine1 = "Address is required.";
-    } else if (addressLine1.length < 5) {
-      nextErrors.addressLine1 = "Address must be at least 5 characters.";
-    }
-
-    if (!city) {
-      nextErrors.city = "City is required.";
-    }
-
-    if (!state) {
-      nextErrors.state = "State is required.";
-    }
-
-    if (!pincode) {
-      nextErrors.pincode = "Pincode is required.";
-    } else if (!PINCODE_REGEX.test(pincode)) {
-      nextErrors.pincode = "Enter a valid 6-digit pincode.";
-    }
-
     if (location && location.length < 3) {
       nextErrors.location = "Location must be at least 3 characters.";
     }
@@ -392,6 +325,19 @@ export default function BulkBookings() {
       // and this handler somehow fires again before the component re-renders.
       if (loading || hasSubmittedRef.current) return;
 
+      // Login required to submit a Bulk Order request. Checked before
+      // validation — a logged-out visitor should be sent to log in
+      // immediately, not shown field-level errors first. Returning here
+      // (rather than auto-submitting) means the user lands back on this
+      // same form after login and re-clicks "Request a Quote" themselves.
+      if (!user) {
+        toast.error("Please log in to submit a bulk order request.");
+        navigate("/login", {
+          state: { from: { pathname: BULK_ORDER_ROUTE } },
+        });
+        return;
+      }
+
       const validationErrors = validate(formData);
 
       if (Object.keys(validationErrors).length > 0) {
@@ -402,7 +348,7 @@ export default function BulkBookings() {
         return;
       }
 
-      // Trim all text fields before sending to the backend; payload shape stays unchanged
+      // Trim all text fields before sending to the backend.
       const payload = {
         ...formData,
         companyName: formData.companyName.trim(),
@@ -411,12 +357,6 @@ export default function BulkBookings() {
         mobileNumber: formData.mobileNumber.trim(),
         location: formData.location.trim(),
         requirements: formData.requirements.trim(),
-        addressLine1: formData.addressLine1.trim(),
-        addressLine2: formData.addressLine2.trim(),
-        city: formData.city.trim(),
-        state: formData.state.trim(),
-        pincode: formData.pincode.trim(),
-        country: formData.country.trim() || "India",
       };
 
       try {
@@ -440,10 +380,18 @@ export default function BulkBookings() {
       } catch (error) {
         // CHANGE (Req #5): layered error handling —
         // 1) no response at all (connectivity/network failure)
-        // 2) backend responded with a message
-        // 3) backend responded without a usable message
+        // 2) session expired/invalid between page load and submit (defense
+        //    in depth — the pre-submit `user` check above already covers
+        //    the common case)
+        // 3) backend responded with a message
+        // 4) backend responded without a usable message
         if (!error?.response) {
           toast.error(NETWORK_ERROR_MESSAGE);
+        } else if (error.response.status === 401) {
+          toast.error("Please log in to submit a bulk order request.");
+          navigate("/login", {
+            state: { from: { pathname: BULK_ORDER_ROUTE } },
+          });
         } else {
           const backendMessage = error?.response?.data?.message;
           toast.error(backendMessage || GENERIC_ERROR_MESSAGE);
@@ -452,7 +400,7 @@ export default function BulkBookings() {
         setLoading(false);
       }
     },
-    [formData, loading, validate, focusFirstInvalidField],
+    [formData, loading, validate, focusFirstInvalidField, user, navigate],
   );
 
   // CHANGE (Req #1): "Submit Another Enquiry" — hides the success card and shows
@@ -902,218 +850,6 @@ export default function BulkBookings() {
                         {errors.mobileNumber}
                       </p>
                     )}
-                  </div>
-
-                  {/* FIX (Magic Checkout for Bulk Orders): structured delivery
-                      address — required. This is the default/reference address
-                      Magic Checkout is seeded with at payment time; the
-                      customer can still change it during checkout. */}
-                  <div className="md:col-span-2">
-                    <label
-                      htmlFor="addressLine1"
-                      className="mb-1.5 block text-sm font-medium text-[#2D3A2E]"
-                    >
-                      Delivery Address <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      id="addressLine1"
-                      type="text"
-                      name="addressLine1"
-                      value={formData.addressLine1}
-                      onChange={handleChange}
-                      onBlur={handleBlurTrim}
-                      placeholder="House / building, street"
-                      required
-                      autoComplete="address-line1"
-                      maxLength={FIELD_MAX_LENGTHS.addressLine1}
-                      aria-required="true"
-                      aria-label="Delivery address line 1"
-                      aria-invalid={Boolean(errors.addressLine1)}
-                      aria-describedby={
-                        errors.addressLine1 ? "addressLine1-error" : undefined
-                      }
-                      ref={(el) => {
-                        fieldRefs.current.addressLine1 = el;
-                      }}
-                      className={getInputClasses("addressLine1")}
-                    />
-                    {errors.addressLine1 && (
-                      <p
-                        id="addressLine1-error"
-                        role="alert"
-                        aria-live="polite"
-                        className="mt-1.5 text-sm text-red-500"
-                      >
-                        {errors.addressLine1}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label
-                      htmlFor="addressLine2"
-                      className="mb-1.5 block text-sm font-medium text-[#2D3A2E]"
-                    >
-                      Address Line 2
-                    </label>
-                    <input
-                      id="addressLine2"
-                      type="text"
-                      name="addressLine2"
-                      value={formData.addressLine2}
-                      onChange={handleChange}
-                      onBlur={handleBlurTrim}
-                      placeholder="Landmark, floor, suite (optional)"
-                      autoComplete="address-line2"
-                      maxLength={FIELD_MAX_LENGTHS.addressLine2}
-                      aria-label="Delivery address line 2"
-                      ref={(el) => {
-                        fieldRefs.current.addressLine2 = el;
-                      }}
-                      className={getInputClasses("addressLine2")}
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="city"
-                      className="mb-1.5 block text-sm font-medium text-[#2D3A2E]"
-                    >
-                      City <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      id="city"
-                      type="text"
-                      name="city"
-                      value={formData.city}
-                      onChange={handleChange}
-                      onBlur={handleBlurTrim}
-                      placeholder="e.g. Bengaluru"
-                      required
-                      autoComplete="address-level2"
-                      maxLength={FIELD_MAX_LENGTHS.city}
-                      aria-required="true"
-                      aria-label="City"
-                      aria-invalid={Boolean(errors.city)}
-                      aria-describedby={errors.city ? "city-error" : undefined}
-                      ref={(el) => {
-                        fieldRefs.current.city = el;
-                      }}
-                      className={getInputClasses("city")}
-                    />
-                    {errors.city && (
-                      <p
-                        id="city-error"
-                        role="alert"
-                        aria-live="polite"
-                        className="mt-1.5 text-sm text-red-500"
-                      >
-                        {errors.city}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="state"
-                      className="mb-1.5 block text-sm font-medium text-[#2D3A2E]"
-                    >
-                      State <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      id="state"
-                      type="text"
-                      name="state"
-                      value={formData.state}
-                      onChange={handleChange}
-                      onBlur={handleBlurTrim}
-                      placeholder="e.g. Karnataka"
-                      required
-                      autoComplete="address-level1"
-                      maxLength={FIELD_MAX_LENGTHS.state}
-                      aria-required="true"
-                      aria-label="State"
-                      aria-invalid={Boolean(errors.state)}
-                      aria-describedby={errors.state ? "state-error" : undefined}
-                      ref={(el) => {
-                        fieldRefs.current.state = el;
-                      }}
-                      className={getInputClasses("state")}
-                    />
-                    {errors.state && (
-                      <p
-                        id="state-error"
-                        role="alert"
-                        aria-live="polite"
-                        className="mt-1.5 text-sm text-red-500"
-                      >
-                        {errors.state}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="pincode"
-                      className="mb-1.5 block text-sm font-medium text-[#2D3A2E]"
-                    >
-                      Pincode <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      id="pincode"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      name="pincode"
-                      value={formData.pincode}
-                      onChange={handleChange}
-                      placeholder="e.g. 560001"
-                      required
-                      autoComplete="postal-code"
-                      maxLength={6}
-                      aria-required="true"
-                      aria-label="Pincode"
-                      aria-invalid={Boolean(errors.pincode)}
-                      aria-describedby={
-                        errors.pincode ? "pincode-error" : undefined
-                      }
-                      ref={(el) => {
-                        fieldRefs.current.pincode = el;
-                      }}
-                      className={getInputClasses("pincode")}
-                    />
-                    {errors.pincode && (
-                      <p
-                        id="pincode-error"
-                        role="alert"
-                        aria-live="polite"
-                        className="mt-1.5 text-sm text-red-500"
-                      >
-                        {errors.pincode}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="country"
-                      className="mb-1.5 block text-sm font-medium text-[#2D3A2E]"
-                    >
-                      Country
-                    </label>
-                    <input
-                      id="country"
-                      type="text"
-                      name="country"
-                      value={formData.country}
-                      disabled
-                      autoComplete="country-name"
-                      aria-label="Country"
-                      className={`${inputBaseClasses} border-[#DCE6D4] bg-[#F2F2EE] text-[#667085]`}
-                    />
-                    <p className="mt-1.5 text-sm text-[#667085]">
-                      Currently only serviceable within India.
-                    </p>
                   </div>
 
                   <div>

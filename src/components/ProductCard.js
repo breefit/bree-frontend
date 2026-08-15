@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ShoppingBag, Check } from "lucide-react";
@@ -14,6 +14,10 @@ const ProductCard = ({ product, index = 0 }) => {
   const { user } = useAuth();
 
   const [isAdded, setIsAdded] = useState(false);
+  // Duplicate-click guard: navigate() is effectively instant, but a fast
+  // double-click on "Subscribe Now" could still fire handleSubscribe twice
+  // before the route change unmounts this component.
+  const isSubscribingRef = useRef(false);
 
   const mrp = Number(
     product.mrp ||
@@ -77,6 +81,9 @@ const ProductCard = ({ product, index = 0 }) => {
   };
 
   const handleSubscribe = () => {
+    if (isSubscribingRef.current) return;
+    isSubscribingRef.current = true;
+
     const subscriptionPayload = {
       product,
       frequency: 30,
@@ -84,6 +91,7 @@ const ProductCard = ({ product, index = 0 }) => {
     };
 
     if (!user) {
+      toast.error("Please log in to continue with your subscription.");
       navigate("/login", {
         state: {
           from: {
@@ -92,10 +100,12 @@ const ProductCard = ({ product, index = 0 }) => {
           },
         },
       });
+      isSubscribingRef.current = false;
       return;
     }
 
     navigate("/subscription-checkout", { state: subscriptionPayload });
+    isSubscribingRef.current = false;
   };
 
   return (

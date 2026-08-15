@@ -110,11 +110,6 @@ const COMMUNICATION_ACTIONS = [
     enabledStatuses: ["new", "in_progress", "quoted", "confirmed", "completed"],
   },
   {
-    key: "payment_link",
-    label: "Send Payment Link",
-    enabledStatuses: ["quoted", "confirmed", "completed"],
-  },
-  {
     key: "confirmation",
     label: "Send Confirmation",
     enabledStatuses: ["confirmed", "completed"],
@@ -127,20 +122,20 @@ const COMMUNICATION_ACTIONS = [
 ];
 
 // Which single action(s) are relevant to surface for each CRM stage.
-// e.g. status "new"/"in_progress" → only "Send Quote" is shown;
-// "quoted" → only "Send Payment Link"; etc.
+// e.g. status "new"/"in_progress" → only "Send Quote" is shown. There is no
+// admin action for the "quoted" stage — once a quote is shared, the
+// customer approves it and pays directly via Razorpay Magic Checkout
+// themselves; no admin-side payment link step exists.
 const STATUS_VISIBLE_ACTIONS = {
   new: ["quote"],
   in_progress: ["quote"],
-  quoted: ["payment_link"],
+  quoted: [],
   confirmed: ["confirmation"],
   completed: ["dispatch"],
   cancelled: [],
 };
 
-// Endpoints for the generic (non-quote / non-payment-link) communication
-// actions. These follow the same REST shape as /share-payment-link and are
-// expected to already exist on the backend.
+// Endpoints for the generic (non-quote) communication actions.
 const COMMUNICATION_ENDPOINTS = {
   confirmation: (id) => `${API}/bulk-bookings/${id}/send-confirmation`,
   dispatch: (id) => `${API}/bulk-bookings/${id}/send-dispatch`,
@@ -220,6 +215,27 @@ const displayOrNA = (value) =>
   value === null || value === undefined || value === ""
     ? "Not Available"
     : value;
+
+// Enquiry Address: new bookings store a single free-text field
+// (enquiry_address). Older bookings, created before this migration, only
+// have the legacy structured columns (address_line1/2, city, state,
+// pincode, country) — composed into a single display string here so they
+// keep rendering correctly without any data migration.
+const getEnquiryAddressDisplay = (booking) => {
+  if (!booking) return "Not Available";
+  if (booking.enquiry_address) return booking.enquiry_address;
+
+  const legacyParts = [
+    booking.address_line1,
+    booking.address_line2,
+    booking.city,
+    booking.state,
+    booking.pincode,
+    booking.country,
+  ].filter(Boolean);
+
+  return legacyParts.length ? legacyParts.join(", ") : "Not Available";
+};
 
 let toastIdCounter = 0;
 
@@ -756,55 +772,6 @@ const BulkOrders = () => {
     }
   };
 
-  // "Send Payment Link" — dedicated backend endpoint, no request body.
-  const handleSendPaymentLink = async () => {
-    if (!selectedBooking || commLoading) return;
-
-    if (selectedBooking.payment_status === "paid") {
-      addToast("error", "Payment has already been verified for this booking.");
-      return;
-    }
-
-    if (!isCommEnabled(selectedBooking.status, "payment_link")) {
-      addToast(
-        "error",
-        `Send Payment Link isn't applicable for a booking that's "${STATUS_CONFIG[selectedBooking.status]?.label}".`,
-      );
-      return;
-    }
-
-    const bookingId = selectedBooking.id;
-    setCommLoading("payment_link");
-    setError("");
-    try {
-      const res = await axios.post(
-        `${API}/bulk-bookings/${bookingId}/share-payment-link`,
-        {},
-        { withCredentials: true },
-      );
-
-      if (res.data?.success !== false) {
-        if (res.data?.data) {
-          setSelectedBooking(res.data.data);
-          setEditData(res.data.data);
-        }
-        const msg = res.data?.message || "Payment link sent successfully!";
-        addToast("success", msg);
-
-        await fetchBookings(currentPage);
-        await fetchStats();
-        await refreshSelectedBooking(bookingId);
-      }
-    } catch (err) {
-      console.error("❌ Failed to send payment link:", err);
-      const msg = err.response?.data?.message || "Failed to send payment link";
-      setError(msg);
-      addToast("error", msg);
-    } finally {
-      setCommLoading(null);
-    }
-  };
-
   // Generic handler for the remaining communication actions (confirmation,
   // dispatch) that don't need a custom payload.
   const handleSendCommunication = async (type, label) => {
@@ -975,22 +942,10 @@ const BulkOrders = () => {
     selectedBooking?.quote_sent,
   );
 
-  // Duplicate-prevention: a payment link has already been shared if the
-  // backend recorded a share timestamp or already created a Razorpay order.
-  const paymentLinkAlreadyShared = Boolean(
-    selectedBooking?.payment_link_shared_at ||
-    selectedBooking?.razorpay_order_id,
-  );
-
   const canSendQuote =
     selectedBooking &&
     ["new", "in_progress"].includes(selectedBooking.status) &&
     !quoteAlreadySent;
-
-  const canSendPaymentLink =
-    selectedBooking &&
-    selectedBooking.payment_status !== "paid" &&
-    !paymentLinkAlreadyShared;
 
   // Support either `linkedOrder` or `order` from the backend response.
   const linkedOrderData =
@@ -1007,7 +962,6 @@ const BulkOrders = () => {
         if (!statusVisible) return false;
 
         if (action.key === "quote" && !canSendQuote) return false;
-        if (action.key === "payment_link" && !canSendPaymentLink) return false;
 
         return true;
       })
@@ -1577,6 +1531,14 @@ const BulkOrders = () => {
                       />
                     </div>
                   </div>
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-bree-text-secondary mb-2 flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5" /> Enquiry Address
+                    </label>
+                    <div className="w-full px-4 py-3 rounded-xl bg-bree-bg border border-bree-border text-bree-text-primary whitespace-pre-wrap">
+                      {getEnquiryAddressDisplay(selectedBooking)}
+                    </div>
+                  </div>
                   {editData.requirements && (
                     <div className="mt-4">
                       <label className="block text-sm font-medium text-bree-text-secondary mb-2">
@@ -1964,8 +1926,6 @@ const BulkOrders = () => {
                       {visibleCommunicationActions.map((action) => {
                         const handleClick = () => {
                           if (action.key === "quote") return handleSendQuote();
-                          if (action.key === "payment_link")
-                            return handleSendPaymentLink();
                           return handleSendCommunication(
                             action.key,
                             action.label,

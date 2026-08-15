@@ -312,9 +312,9 @@ const Home = () => {
               </h2>
             </motion.div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {productsLoading ? (
-                Array.from({ length: 2 }).map((_, i) => (
+                Array.from({ length: 3 }).map((_, i) => (
                   <div
                     key={i}
                     className="animate-pulse bg-white rounded-3xl p-6 min-h-[260px]"

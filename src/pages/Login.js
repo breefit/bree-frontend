@@ -36,7 +36,15 @@ const Login = () => {
   } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectPath = location.state?.from || "/";
+  // `from` may be a plain path string, or `{ pathname, state }` when the
+  // caller needs to hand back data (e.g. the selected product/subscription
+  // details) for the destination page to pick up after login. React
+  // Router's navigate(to, opts) only reads pathname/search/hash off `to` —
+  // any `state` nested inside `to` itself is silently dropped, so it must
+  // be pulled out here and passed as its own `state` option below.
+  const from = location.state?.from;
+  const redirectPath = (typeof from === "string" ? from : from?.pathname) || "/";
+  const redirectState = typeof from === "object" ? from?.state : undefined;
 
   const [step, setStep] = useState("mobile"); // 'mobile' | 'otp' | 'profile'
   const [mobile, setMobile] = useState("");
@@ -127,7 +135,7 @@ const Login = () => {
       if (response?.isNewUser === true) {
         setStep("profile");
       } else {
-        navigate(redirectPath, { replace: true });
+        navigate(redirectPath, { replace: true, state: redirectState });
       }
     } catch (error) {
       // Error toast already shown by AuthContext
@@ -168,7 +176,7 @@ const Login = () => {
         mobile,
         name: name.trim(),
       });
-      navigate(redirectPath, { replace: true });
+      navigate(redirectPath, { replace: true, state: redirectState });
     } catch (error) {
       // Error toast already shown by AuthContext
     } finally {
@@ -215,7 +223,7 @@ const Login = () => {
                     try {
                       setIsLoading(true);
                       await loginWithGoogle();
-                      navigate(redirectPath, { replace: true });
+                      navigate(redirectPath, { replace: true, state: redirectState });
                     } catch (error) {
                       // error handled in AuthContext
                     } finally {
