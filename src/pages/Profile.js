@@ -19,6 +19,8 @@ import {
   LogOut,
   RefreshCw,
   KeyRound,
+  Briefcase,
+  AlertCircle,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -45,8 +47,20 @@ const TABS = [
   { id: "profile", label: "Profile", icon: User },
   { id: "addresses", label: "Addresses", icon: MapPin },
   { id: "orders", label: "Orders", icon: Package },
+  { id: "bulk-orders", label: "Bulk Orders", icon: Briefcase },
   { id: "subscriptions", label: "Subscriptions", icon: RefreshCw },
 ];
+
+// Mirrors admin/BulkOrders.js's STATUS_CONFIG labels/colors so a booking's
+// status reads the same way here as it does in the admin dashboard.
+const BULK_STATUS_CONFIG = {
+  new: { label: "New Request", color: "bg-blue-100 text-blue-700" },
+  in_progress: { label: "In Progress", color: "bg-orange-100 text-orange-700" },
+  quoted: { label: "Quoted", color: "bg-purple-100 text-purple-700" },
+  confirmed: { label: "Confirmed", color: "bg-green-100 text-green-700" },
+  completed: { label: "Completed", color: "bg-emerald-100 text-emerald-700" },
+  cancelled: { label: "Cancelled", color: "bg-red-100 text-red-700" },
+};
 
 // ─── Profile Tab ─────────────────────────────────────────────────────────────
 function ProfileTab({ user }) {
@@ -763,6 +777,172 @@ function OrdersTab() {
   );
 }
 
+// ─── Bulk Orders Tab ──────────────────────────────────────────────────────────
+function BulkOrdersTab() {
+  const navigate = useNavigate();
+  const [bulkOrders, setBulkOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const fetchBulkOrders = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      // Ownership is enforced server-side by the `auth` middleware + a
+      // WHERE user_id = req.user.id query — there's no booking id in this
+      // request for a user to tamper with, so this can only ever return
+      // the logged-in customer's own bulk bookings.
+      const res = await axios.get(`/api/bulk-bookings/mine`);
+      const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
+      setBulkOrders(data);
+    } catch (err) {
+      const msg =
+        err.response?.data?.message || "Could not load your bulk orders.";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBulkOrders();
+  }, [fetchBulkOrders]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 className="w-8 h-8 animate-spin text-bree-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-16">
+        <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+        <p className="text-bree-text-secondary mb-4">{error}</p>
+        <Button variant="outline" onClick={fetchBulkOrders}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Try Again
+        </Button>
+      </div>
+    );
+  }
+
+  if (bulkOrders.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <Briefcase className="w-12 h-12 text-bree-border mx-auto mb-4" />
+        <p className="text-bree-text-secondary">
+          No bulk orders yet. Interested in ordering for your organization?
+        </p>
+        <Button
+          onClick={() => navigate("/bulk")}
+          variant="outline"
+          className="mt-4 rounded-2xl"
+        >
+          Request a Bulk Quote
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      {bulkOrders.map((booking) => {
+        const statusInfo =
+          BULK_STATUS_CONFIG[booking.status] || BULK_STATUS_CONFIG.new;
+
+        return (
+          <div
+            key={booking.id}
+            className="p-4 bg-bree-bg rounded-xl border border-bree-border"
+          >
+            <div className="flex flex-col sm:flex-row justify-between items-start gap-3 mb-3">
+              <div>
+                <span className="text-xs text-bree-text-secondary uppercase tracking-wide">
+                  Bulk Order
+                </span>
+                <p className="font-outfit font-semibold text-bree-text-primary">
+                  {booking.bulk_booking_number || "—"}
+                </p>
+              </div>
+              <div className="flex sm:flex-col items-start sm:items-end gap-2 w-full sm:w-auto">
+                <span
+                  className={`text-xs px-3 py-1 rounded-full font-medium ${statusInfo.color}`}
+                >
+                  {statusInfo.label}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/bulk-order/${booking.id}`)}
+                  className="text-sm bg-bree-primary text-white px-3 py-1 rounded-full shrink-0"
+                >
+                  View Details
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 pt-3 border-t border-bree-border/50">
+              <div>
+                <span className="block text-xs text-bree-text-secondary uppercase tracking-wide">
+                  Company
+                </span>
+                <span className="font-medium text-bree-text-primary break-words">
+                  {booking.company_name || "—"}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs text-bree-text-secondary uppercase tracking-wide">
+                  Quantity
+                </span>
+                <span className="font-medium text-bree-text-primary">
+                  {booking.quantity ?? "—"}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs text-bree-text-secondary uppercase tracking-wide">
+                  Quote Price
+                </span>
+                <span className="font-medium text-bree-primary">
+                  {booking.quote_price
+                    ? `₹${Number(booking.quote_price).toLocaleString("en-IN")}`
+                    : "Pending"}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs text-bree-text-secondary uppercase tracking-wide">
+                  Delivery Date
+                </span>
+                <span className="font-medium text-bree-text-primary">
+                  {booking.delivery_date
+                    ? new Date(booking.delivery_date).toLocaleDateString(
+                        "en-IN",
+                        { year: "numeric", month: "short", day: "numeric" },
+                      )
+                    : "—"}
+                </span>
+              </div>
+            </div>
+
+            {booking.created_at && (
+              <p className="text-xs text-bree-text-secondary mt-3 pt-3 border-t border-bree-border/50">
+                Requested on{" "}
+                {new Date(booking.created_at).toLocaleDateString("en-IN", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Subscriptions Tab ────────────────────────────────────────────────────────
 function SubscriptionsTab() {
   const navigate = useNavigate();
@@ -860,7 +1040,7 @@ const Profile = () => {
           </motion.div>
 
           {/* Tabs */}
-          <div className="flex gap-1 bg-white p-1 rounded-2xl border border-bree-border mb-8 w-fit">
+          <div className="flex gap-1 bg-white p-1 rounded-2xl border border-bree-border mb-8 w-full sm:w-fit overflow-x-auto">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
@@ -869,7 +1049,7 @@ const Profile = () => {
                   nextParams.set("tab", tab.id);
                   setSearchParams(nextParams);
                 }}
-                className={`flex items-center justify-center gap-3 py-2 px-8 rounded-2xl text-lg transition-all ${
+                className={`flex items-center justify-center gap-3 py-2 px-8 rounded-2xl text-lg transition-all shrink-0 ${
                   activeTab === tab.id
                     ? "bg-bree-primary text-white shadow-sm"
                     : "text-bree-text-secondary hover:text-bree-text-primary"
@@ -893,6 +1073,7 @@ const Profile = () => {
               {activeTab === "profile" && <ProfileTab user={user} />}
               {activeTab === "addresses" && <AddressesTab />}
               {activeTab === "orders" && <OrdersTab />}
+              {activeTab === "bulk-orders" && <BulkOrdersTab />}
               {activeTab === "subscriptions" && <SubscriptionsTab />}
             </motion.div>
           </AnimatePresence>

@@ -597,6 +597,17 @@ const BulkOrders = () => {
       }
 
       if (
+        editData.status === "quoted" &&
+        (!editData.quote_price || !editData.delivery_date)
+      ) {
+        addToast(
+          "error",
+          "Quote price and delivery date are required before marking a booking as Quoted.",
+        );
+        return;
+      }
+
+      if (
         editData.status === "confirmed" &&
         (!editData.quote_price || !editData.delivery_date)
       ) {
@@ -675,6 +686,27 @@ const BulkOrders = () => {
         `Cannot move from "${STATUS_CONFIG[selectedBooking.status]?.label}" to "${STATUS_CONFIG[newStatus]?.label}" directly.`,
       );
       return;
+    }
+
+    if (newStatus === "quoted") {
+      if (!editData?.quote_price || !editData?.delivery_date) {
+        addToast(
+          "error",
+          "Quote price and delivery date are required before marking a booking as Quoted.",
+        );
+        return;
+      }
+      if (!isValidQuotePrice(editData.quote_price)) {
+        addToast(
+          "error",
+          "Quote price must be a positive number greater than 0.",
+        );
+        return;
+      }
+      if (!isValidDeliveryDate(editData.delivery_date)) {
+        addToast("error", "Delivery date cannot be in the past.");
+        return;
+      }
     }
 
     if (newStatus === "confirmed") {
