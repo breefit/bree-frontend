@@ -37,7 +37,7 @@ export default function BulkPaymentSuccess() {
           <div className="mt-10 rounded-xl border bg-gray-50 p-6 text-left space-y-4">
             <div className="flex justify-between">
               <span>Booking Number</span>
-              <strong>{booking?.bookingNumber || bookingIdParam}</strong>
+              <strong>{booking?.bookingNumber || "—"}</strong>
             </div>
 
             <div className="flex justify-between">

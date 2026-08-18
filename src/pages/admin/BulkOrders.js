@@ -196,10 +196,12 @@ const formatDateTime = (value) => {
   });
 };
 
-const getBookingDisplayId = (booking) =>
-  booking.booking_number ||
-  booking.booking_id ||
-  `BB-${String(booking.id).padStart(6, "0")}`;
+// The real, backend-generated reference (bulk_booking_number, e.g.
+// "BB-100001") — never fabricate one from the UUID. Every booking has this
+// by the time it reaches the admin UI (generated at creation; legacy rows
+// are backfilled on server startup), so the fallback only covers an
+// in-flight request racing the backfill.
+const getBookingDisplayId = (booking) => booking.bulk_booking_number || "—";
 
 const escapeCsvField = (value) => {
   const str = value === null || value === undefined ? "" : String(value);
@@ -298,6 +300,7 @@ const BulkOrders = () => {
         const matchesSearch =
           !search ||
           getBookingDisplayId(booking).toLowerCase().includes(search) ||
+          booking.id?.toLowerCase().includes(search) ||
           booking.company_name?.toLowerCase().includes(search) ||
           booking.contact_person?.toLowerCase().includes(search) ||
           booking.email?.toLowerCase().includes(search) ||
