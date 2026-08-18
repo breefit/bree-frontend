@@ -122,12 +122,15 @@ const COMMUNICATION_ACTIONS = [
 ];
 
 // Which single action(s) are relevant to surface for each CRM stage.
-// e.g. status "new"/"in_progress" → only "Send Quote" is shown. There is no
-// admin action for the "quoted" stage — once a quote is shared, the
-// customer approves it and pays directly via Razorpay Magic Checkout
-// themselves; no admin-side payment link step exists.
+// "new" shows no communication action — the only thing to do with a brand
+// new enquiry is move it to "in_progress" (a Quick Action, not a
+// communication action); only once it's "in_progress" does "Send Quote"
+// appear, so quoting can't skip the review step. There is no admin action
+// for the "quoted" stage — once a quote is shared, the customer approves it
+// and pays directly via Razorpay Magic Checkout themselves; no admin-side
+// payment link step exists.
 const STATUS_VISIBLE_ACTIONS = {
-  new: ["quote"],
+  new: [],
   in_progress: ["quote"],
   quoted: [],
   confirmed: ["confirmation"],
@@ -945,9 +948,12 @@ const BulkOrders = () => {
     selectedBooking?.quote_sent,
   );
 
+  // Quoting is only reachable after the booking has moved to "in_progress" —
+  // "new" must go through "Mark as In Progress" first, so the workflow can't
+  // skip straight from "new" to "quoted".
   const canSendQuote =
     selectedBooking &&
-    ["new", "in_progress"].includes(selectedBooking.status) &&
+    selectedBooking.status === "in_progress" &&
     !quoteAlreadySent;
 
   // Support either `linkedOrder` or `order` from the backend response.
