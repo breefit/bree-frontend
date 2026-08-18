@@ -681,15 +681,34 @@ function OrdersTab() {
               <p className="font-outfit font-semibold text-bree-text-primary">
                 #{order.order_number || order.id?.slice(-8) || order.id}
               </p>
+              {Boolean(order.is_bulk_order) && (
+                <span className="mt-1 inline-flex w-fit items-center gap-1 text-[11px] font-medium bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                  Bulk Order
+                  {order.bulk_booking_number
+                    ? ` — ${order.bulk_booking_number}`
+                    : ""}
+                </span>
+              )}
+              {Boolean(order.is_renewal_order) && (
+                <span className="mt-1 inline-flex w-fit items-center gap-1 text-[11px] font-medium bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">
+                  Subscription Renewal
+                </span>
+              )}
               {order.parent_package_id && (
                 <div className="mt-1 flex flex-col gap-0.5">
                   <span className="inline-flex w-fit items-center gap-1 text-[11px] font-medium bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                    {order.package_number || "Package"} · Cycle{" "}
-                    {order.fulfillment_cycle}
+                    {order.fulfillment_cycle === 1
+                      ? "Subscription Order"
+                      : "Subscription Renewal"}
                     {order.package_total_cycles
-                      ? ` of ${order.package_total_cycles}`
+                      ? ` · Month ${order.fulfillment_cycle} of ${order.package_total_cycles}`
                       : ""}
                   </span>
+                  {order.package_number && (
+                    <span className="text-[11px] text-bree-text-secondary">
+                      {order.package_number}
+                    </span>
+                  )}
                   {order.package_status === "active" &&
                     order.package_next_fulfillment_date && (
                       <span className="text-[11px] text-bree-text-secondary">
