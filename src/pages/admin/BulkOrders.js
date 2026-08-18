@@ -638,7 +638,18 @@ const BulkOrders = () => {
 
   // Used by the Quick Action buttons — changes status directly via the API
   // without requiring the rest of the form to be saved.
-  const performStatusChange = async (newStatus) => {
+  //
+  // FIX (Mark as Quoted bug): this used to send only { status: newStatus },
+  // never quote_price/delivery_date — so even though handleQuickStatusChange
+  // validated those fields against the CURRENT editData (what's visibly in
+  // the modal), the actual request omitted them. The backend then fell back
+  // to whatever was already saved on the row (null, for an In Progress
+  // booking that's never been quoted) and correctly rejected the update —
+  // the admin saw the "required" error despite the fields being filled in.
+  // `extraFields` lets callers include whatever's currently staged in the
+  // form alongside the status change, so the request always matches what's
+  // on screen instead of silently dropping it.
+  const performStatusChange = async (newStatus, extraFields = {}) => {
     if (!selectedBooking || saving) return;
 
     try {
@@ -647,7 +658,7 @@ const BulkOrders = () => {
 
       const res = await axios.put(
         `${API}/bulk-bookings/${selectedBooking.id}`,
-        { status: newStatus },
+        { status: newStatus, ...extraFields },
         { withCredentials: true },
       );
 
@@ -730,6 +741,27 @@ const BulkOrders = () => {
       }
     }
 
+    // Carry the CURRENT form values along with the status change for
+    // "quoted"/"confirmed" — both already passed the checks above, so this
+    // is exactly what the admin sees in the modal right now, not whatever
+    // was last saved to the row. Mirrors saveBookingChanges's own
+    // "" -> null normalization. delivery_date is additionally clamped to
+    // its first 10 characters as a defensive guard: the <input type="date">
+    // itself always yields plain "YYYY-MM-DD", but if editData were ever
+    // populated from a raw full-datetime value, the backend's strict format
+    // check would otherwise reject it.
+    const quoteFields =
+      newStatus === "quoted" || newStatus === "confirmed"
+        ? {
+            quote_price:
+              editData.quote_price === "" ? null : editData.quote_price,
+            delivery_date:
+              editData.delivery_date === ""
+                ? null
+                : String(editData.delivery_date).slice(0, 10),
+          }
+        : {};
+
     const label = STATUS_CONFIG[newStatus]?.label;
     openConfirm({
       title:
@@ -745,7 +777,7 @@ const BulkOrders = () => {
       variant: newStatus === "cancelled" ? "danger" : "default",
       onConfirm: async () => {
         closeConfirm();
-        await performStatusChange(newStatus);
+        await performStatusChange(newStatus, quoteFields);
       },
     });
   };
