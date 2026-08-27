@@ -110,9 +110,7 @@ const Products = () => {
         formData.append("price", data.price.toString());
         formData.append("mrp", data.mrp.toString());
         formData.append("quantity", data.quantity.toString());
-        formData.append("stockQty", data.stockQty.toString());
         formData.append("popular", data.popular ? "true" : "false");
-        formData.append("status", data.status);
         formData.append("features", featuresString);
         formData.append(
           "is_subscription",
@@ -301,9 +299,6 @@ const Products = () => {
                       Journey
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-bree-text-secondary uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-bree-text-secondary uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -395,19 +390,6 @@ const Products = () => {
                               Recs off
                             </span>
                           )}
-                        </td>
-
-                        {/* Status */}
-                        <td className="px-6 py-5">
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-medium ${
-                              product.status === "In Stock"
-                                ? "bg-green-50 text-green-600"
-                                : "bg-red-50 text-red-500"
-                            }`}
-                          >
-                            {product.status}
-                          </span>
                         </td>
 
                         {/* Actions */}
@@ -512,17 +494,7 @@ const Products = () => {
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between mt-4">
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-medium ${
-                              product.status === "In Stock"
-                                ? "bg-green-50 text-green-600"
-                                : "bg-red-50 text-red-500"
-                            }`}
-                          >
-                            {product.status}
-                          </span>
-
+                        <div className="flex items-center justify-end mt-4">
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => handleManageRelations(product)}

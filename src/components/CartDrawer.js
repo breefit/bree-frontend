@@ -45,7 +45,7 @@ const CartDrawer = ({ isOpen, onClose }) => {
 
   // ── Fetch recommendations via journey-based API ──────────────────────────
   // The API already enforces all business rules (is_subscription, journey_level,
-  // show_recommendations, inactive, out-of-stock). We only need to additionally
+  // show_recommendations and inactive products. We only need to additionally
   // strip products that are already in the cart on the client side.
   useEffect(() => {
     if (!primaryProductId) {
@@ -228,8 +228,8 @@ const CartDrawer = ({ isOpen, onClose }) => {
           {/* Pending changes banner */}
           {pendingChanges && pendingChanges.length > 0 && (
             <div className="mx-5 mt-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200 text-sm text-yellow-800">
-              Product price/stock updates were detected and your cart was
-              updated.
+              Product price or availability updates were detected and your cart
+              was updated.
             </div>
           )}
           {cartItems.length === 0 ? (

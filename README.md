@@ -1,4 +1,4 @@
-# BREE Wellness — Frontend  ------ Updated on 14-Aug-2026 9:00pm ---------
+# BREE Wellness — Frontend ------ Updated on 14-Aug-2026 9:00pm ---------
 
 React storefront (with an embedded admin dashboard) for the BREE Wellness D2C e‑commerce platform.
 
@@ -59,25 +59,25 @@ The frontend covers:
 
 Versions below are taken directly from `package.json`.
 
-| Package | Version | Purpose |
-|---|---|---|
-| `react` / `react-dom` | ^18.3.1 | UI library |
-| `react-scripts` (Create React App) | 5.0.1 | Build tooling, run via CRACO |
-| `@craco/craco` | ^7.1.0 | CRA config override (webpack alias, ESLint rules, optional health-check plugin) |
-| `react-router-dom` | ^7.5.1 | Client-side routing |
-| `tailwindcss` | ^3.4.17 | Utility-first CSS |
-| `tailwindcss-animate`, `tailwind-merge`, `clsx`, `class-variance-authority` | latest | Tailwind/shadcn styling helpers |
-| `@radix-ui/react-*` (accordion, dialog, dropdown-menu, select, tabs, toast, tooltip, etc.) | latest | Headless UI primitives underlying the shadcn/ui component set in `src/components/ui/` |
-| `framer-motion` | ^12.38.0 | Animations/transitions |
-| `axios` | ^1.8.4 | HTTP client (single shared instance, see [API Integration](#16-api-integration)) |
-| `sonner` | ^2.0.3 | Toast notifications |
-| `lucide-react` | ^0.507.0 | Icon set |
-| `react-icons` | ^5.6.0 | Additional icons |
-| `firebase` | ^10.14.1 | Google Sign-In only (`firebase/auth`) — no other Firebase services are used |
-| `socket.io-client` | ^4.8.3 | Real-time order/product update events from the backend |
-| `react-helmet-async` | ^2.0.5 | Per-page `<title>`/meta tags |
-| `input-otp` | ^1.4.2 | OTP input UI component |
-| `next-themes` | ^0.4.6 | Theme primitive used by shadcn/ui components |
+| Package                                                                                    | Version  | Purpose                                                                               |
+| ------------------------------------------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------- |
+| `react` / `react-dom`                                                                      | ^18.3.1  | UI library                                                                            |
+| `react-scripts` (Create React App)                                                         | 5.0.1    | Build tooling, run via CRACO                                                          |
+| `@craco/craco`                                                                             | ^7.1.0   | CRA config override (webpack alias, ESLint rules, optional health-check plugin)       |
+| `react-router-dom`                                                                         | ^7.5.1   | Client-side routing                                                                   |
+| `tailwindcss`                                                                              | ^3.4.17  | Utility-first CSS                                                                     |
+| `tailwindcss-animate`, `tailwind-merge`, `clsx`, `class-variance-authority`                | latest   | Tailwind/shadcn styling helpers                                                       |
+| `@radix-ui/react-*` (accordion, dialog, dropdown-menu, select, tabs, toast, tooltip, etc.) | latest   | Headless UI primitives underlying the shadcn/ui component set in `src/components/ui/` |
+| `framer-motion`                                                                            | ^12.38.0 | Animations/transitions                                                                |
+| `axios`                                                                                    | ^1.8.4   | HTTP client (single shared instance, see [API Integration](#16-api-integration))      |
+| `sonner`                                                                                   | ^2.0.3   | Toast notifications                                                                   |
+| `lucide-react`                                                                             | ^0.507.0 | Icon set                                                                              |
+| `react-icons`                                                                              | ^5.6.0   | Additional icons                                                                      |
+| `firebase`                                                                                 | ^10.14.1 | Google Sign-In only (`firebase/auth`) — no other Firebase services are used           |
+| `socket.io-client`                                                                         | ^4.8.3   | Real-time order/product update events from the backend                                |
+| `react-helmet-async`                                                                       | ^2.0.5   | Per-page `<title>`/meta tags                                                          |
+| `input-otp`                                                                                | ^1.4.2   | OTP input UI component                                                                |
+| `next-themes`                                                                              | ^0.4.6   | Theme primitive used by shadcn/ui components                                          |
 
 **Razorpay**: there is no Razorpay npm package. Both Standard and Magic Checkout are loaded at runtime via the Razorpay `<script>` tag (see [`src/lib/razorpayLoader.js`](src/lib/razorpayLoader.js)); the publishable key is never stored in the frontend — it is returned by the backend at order-creation time.
 
@@ -143,8 +143,8 @@ The `@/` import alias (e.g. `import axios from "@/lib/api"`) resolves to `src/`,
 
 - **Home** (`/`) — hero, benefits, "how it works" steps, featured products, testimonials, testimonial submission form.
 - **Shop** (`/shop`) — product catalog with **category filtering** (categories are derived from the loaded product list; there is no free-text product search in the current implementation).
-- **Product cards** (`ProductCard.js`) — price, MRP, computed discount %, shipping info, out-of-stock state, and either an **Add to Cart** or **Subscribe Now** action depending on whether the product is flagged as a subscription product.
-- **Cart** — drawer-based cart (`CartDrawer.js`) backed by `CartContext`, persisted to `localStorage`, and synced against the backend (price/stock/availability) via `POST /api/orders/validate-cart`.
+- **Product cards** (`ProductCard.js`) — price, MRP, computed discount %, shipping info, and either an **Add to Cart** or **Subscribe Now** action depending on whether the product is flagged as a subscription product.
+- **Cart** — drawer-based cart (`CartDrawer.js`) backed by `CartContext`, persisted to `localStorage`, and synced against the backend for price and active-product changes via `POST /api/orders/validate-cart`.
 - **Checkout** (`/checkout`, login required) — Razorpay-based one-time payment checkout with cart review, price/shipping breakdown, and a cart-changed confirmation modal.
 - **Authentication** — mobile OTP and Google Sign-In (see [§5](#5-authentication)).
 - **Profile** (`/profile`, login required) — tabbed page: Profile info, Addresses (CRUD), Orders (with tracking + recurring-package cycle badges), and a link into Subscriptions.
@@ -207,7 +207,6 @@ Logged-in users' submissions proceed directly to `POST /api/bulk-bookings`, whic
 Product data and flags are read from the backend product record (`ProductCard.js`, `Shop.js`, admin `Products.js`/`ProductModal.js`):
 
 - **Pricing**: `price` (selling price) vs `mrp`, with a discount percentage computed client-side.
-- **Stock**: `status === "Out Of Stock"` disables Add to Cart/Subscribe and shows an "Out Of Stock" badge.
 - **Shipping**: `is_free_shipping` / `shipping_charge` drive a "Free Shipping" or "Shipping ₹X" label per product.
 - **Features**: a list of bullet features rendered on the card.
 - **Categories**: `product.category`, used to drive Shop page filtering.
@@ -216,10 +215,10 @@ Product data and flags are read from the backend product record (`ProductCard.js
 
 These are three **mutually exclusive** product models, configured by the admin in `ProductModal.js`:
 
-| Model | Flag | Customer flow |
-|---|---|---|
-| **Normal Product** | (neither flag set) | Add to Cart → one-time Checkout |
-| **Subscription Product** | `is_subscription` | "Subscribe Now" → login-gated → recurring billing every N days via Razorpay Subscriptions |
+| Model                         | Flag                                                                                                                                       | Customer flow                                                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Normal Product**            | (neither flag set)                                                                                                                         | Add to Cart → one-time Checkout                                                                                                         |
+| **Subscription Product**      | `is_subscription`                                                                                                                          | "Subscribe Now" → login-gated → recurring billing every N days via Razorpay Subscriptions                                               |
 | **Recurring Package Product** | `is_recurring_package`, with `package_duration_months` (number of cycles) and `package_fulfillment_interval_days` (days between shipments) | One payment; the backend fulfills the product across multiple shipping cycles — see [§8](#8-recurring-package--multi-cycle-fulfillment) |
 
 The admin UI enforces `is_subscription` and `is_recurring_package` as mutually exclusive (enabling one disables the other).
@@ -299,11 +298,11 @@ Bulk Order payments have been **migrated from Razorpay Standard Checkout to Razo
 
 **Distinguishing the three payment paths in this codebase:**
 
-| Flow | Checkout mode | Address source |
-|---|---|---|
-| Normal product Checkout (`/checkout`) | Razorpay Checkout (line items configured server-side; see `Checkout.js`/`razorpayLoader.js`) | Collected in Razorpay's popup during checkout |
-| Subscription Checkout (`/subscription-checkout`) | Razorpay Checkout for a `subscription_id` | Collected/selected on the Subscription Checkout page before payment |
-| Bulk Order Payment (`/bulk-order/:bookingId/pay`) | Razorpay **Magic Checkout** (`one_click_checkout: true`) | Collected by Magic Checkout during payment |
+| Flow                                              | Checkout mode                                                                                | Address source                                                      |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Normal product Checkout (`/checkout`)             | Razorpay Checkout (line items configured server-side; see `Checkout.js`/`razorpayLoader.js`) | Collected in Razorpay's popup during checkout                       |
+| Subscription Checkout (`/subscription-checkout`)  | Razorpay Checkout for a `subscription_id`                                                    | Collected/selected on the Subscription Checkout page before payment |
+| Bulk Order Payment (`/bulk-order/:bookingId/pay`) | Razorpay **Magic Checkout** (`one_click_checkout: true`)                                     | Collected by Magic Checkout during payment                          |
 
 `src/lib/razorpayLoader.js` is the single shared Razorpay integration used by all three flows — there is one Razorpay script loader and one `openRazorpayCheckout()` helper, not separate implementations per flow.
 
@@ -365,18 +364,18 @@ The admin dashboard is part of this same frontend project, rendered without the 
 
 **Admin authentication**: `AdminAuthContext.js` — email/password login (`POST /api/admin/login`), a JWT stored in `localStorage` (`bree_admin_token`) and sent as an `Authorization: Bearer` header, session check via `GET /api/admin/me`, and logout via `POST /api/admin/logout`. `ProtectedAdminRoute.js` guards every admin route and redirects to `/admin/login` when unauthenticated.
 
-| Page | Route | Purpose |
-|---|---|---|
-| `AdminLogin.js` | `/admin/login` | Admin sign-in |
-| `AdminDashboard.js` | `/admin`, `/admin/dashboard` | Stat cards (orders, revenue, customers, pending orders, bulk booking counts by stage) and a recent-orders table |
-| `Orders.js` | `/admin/orders` | Full order management: search/filter/sort/paginate, status updates (single + bulk), Delhivery shipment creation/tracking/label/cancel/pickup, and the full return/refund/QC/inspection workflow (approve/reject return, reverse shipment, mark returned, QC approve/reject, refund approve/reject/complete via Razorpay); also surfaces recurring-package and bulk-order metadata on individual orders |
-| `Products.js` + `ProductModal.js` + `ProductRelationsModal.js` | `/admin/products` | Product CRUD (image upload, pricing, stock, shipping config, Journey Level, Subscription/Recurring Package toggles and their fields) and related-product management (recommend/upsell/alternative) |
-| `BulkOrders.js` | `/admin/bulk-bookings` | Bulk Order request management — status workflow (New → In Progress → Quoted → Confirmed → Completed/Cancelled), quote entry, Enquiry Address display, communication log, and linked-Order view once payment completes |
-| `Customers.js` | `/admin/customers` | Read-only customer list with search and spend/order stats |
-| `AdminSubscriptions.js` + `AdminSubscriptionDetails.js` | `/admin/subscriptions`, `/admin/subscriptions/:id` | Subscription list/detail with search/filter and Pause/Resume/Cancel actions, billing history, and renewal-order links |
-| `SubscriptionAnalytics.js` | `/admin/subscription-analytics` | Read-only subscription/revenue analytics (active/paused/cancelled counts, MRR, renewal success rate, monthly growth chart) |
-| `ContactInquiries.js` | `/admin/inquiries` | Contact form submissions — mark contacted, WhatsApp reply link, delete |
-| `Testimonialadmin.js` | `/admin/testimonials` | Testimonial moderation — approve/reject/delete |
+| Page                                                           | Route                                              | Purpose                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AdminLogin.js`                                                | `/admin/login`                                     | Admin sign-in                                                                                                                                                                                                                                                                                                                                                                                          |
+| `AdminDashboard.js`                                            | `/admin`, `/admin/dashboard`                       | Stat cards (orders, revenue, customers, pending orders, bulk booking counts by stage) and a recent-orders table                                                                                                                                                                                                                                                                                        |
+| `Orders.js`                                                    | `/admin/orders`                                    | Full order management: search/filter/sort/paginate, status updates (single + bulk), Delhivery shipment creation/tracking/label/cancel/pickup, and the full return/refund/QC/inspection workflow (approve/reject return, reverse shipment, mark returned, QC approve/reject, refund approve/reject/complete via Razorpay); also surfaces recurring-package and bulk-order metadata on individual orders |
+| `Products.js` + `ProductModal.js` + `ProductRelationsModal.js` | `/admin/products`                                  | Product CRUD (image upload, pricing, shipping config, Journey Level, Subscription/Recurring Package toggles and their fields) and related-product management (recommend/upsell/alternative)                                                                                                                                                                                                            |
+| `BulkOrders.js`                                                | `/admin/bulk-bookings`                             | Bulk Order request management — status workflow (New → In Progress → Quoted → Confirmed → Completed/Cancelled), quote entry, Enquiry Address display, communication log, and linked-Order view once payment completes                                                                                                                                                                                  |
+| `Customers.js`                                                 | `/admin/customers`                                 | Read-only customer list with search and spend/order stats                                                                                                                                                                                                                                                                                                                                              |
+| `AdminSubscriptions.js` + `AdminSubscriptionDetails.js`        | `/admin/subscriptions`, `/admin/subscriptions/:id` | Subscription list/detail with search/filter and Pause/Resume/Cancel actions, billing history, and renewal-order links                                                                                                                                                                                                                                                                                  |
+| `SubscriptionAnalytics.js`                                     | `/admin/subscription-analytics`                    | Read-only subscription/revenue analytics (active/paused/cancelled counts, MRR, renewal success rate, monthly growth chart)                                                                                                                                                                                                                                                                             |
+| `ContactInquiries.js`                                          | `/admin/inquiries`                                 | Contact form submissions — mark contacted, WhatsApp reply link, delete                                                                                                                                                                                                                                                                                                                                 |
+| `Testimonialadmin.js`                                          | `/admin/testimonials`                              | Testimonial moderation — approve/reject/delete                                                                                                                                                                                                                                                                                                                                                         |
 
 Any unmatched `/admin/*` path falls back to the Dashboard (still behind `ProtectedAdminRoute`).
 
@@ -419,7 +418,7 @@ No endpoint URLs are invented here beyond what the source code calls.
 
 - **`AuthContext`** (`src/context/AuthContext.js`) — customer session (`user`, `loading`, `authenticating`), OTP/Google login actions, logout, and cross-tab session sync via a `storage` event + `bree-auth-event` `localStorage` key.
 - **`AdminAuthContext`** (`src/context/AdminAuthContext.js`) — separate admin session state and actions, independent of `AuthContext`.
-- **`CartContext`** (`src/context/CartContext.js`) — cart items, count, subtotal, and computed shipping; persists to `localStorage` (`bree_cart_items`) and reconciles against the backend via `syncCart()` (price/stock/availability changes).
+- **`CartContext`** (`src/context/CartContext.js`) — cart items, count, subtotal, and computed shipping; persists to `localStorage` (`bree_cart_items`) and reconciles against the backend via `syncCart()` (price and active-product changes).
 - **`localStorage` usage**: `bree_access_token` (customer access token, used as an `Authorization` fallback), `bree_admin_token` (admin JWT), `bree_cart_items` (cart), plus a generic TTL-based cache under the `bree_cache:` prefix (`src/lib/cache.js`), used for non-critical, cacheable GET responses.
 - **Routing state**: React Router's `location.state` is used to pass data across navigations without a global store — most notably the post-login redirect payload described in [§5](#5-authentication), and the Bulk Order payment outcome passed into the success/failure pages.
 - **Real-time state**: `socket.io-client` (`src/lib/socket.js`) plus the `useOrdersSync`/`useProductsSync` hooks push live `order:updated` and `product:created|updated|deleted` events into local component state (no global store — each consumer merges updates into its own `useState`).
@@ -433,36 +432,36 @@ Routing is defined in `App.js` using `react-router-dom` v7 (`BrowserRouter`/`Rou
 
 ### Public routes (no auth required to view)
 
-| Path | Page |
-|---|---|
-| `/` | Home |
-| `/shop` | Shop |
-| `/about` | About |
-| `/benefits` | Benefits |
-| `/bulk` | Bulk Order request form |
-| `/contact` | Contact |
-| `/support` | Support (policies) |
-| `/checkout/success` | Checkout success |
-| `/bulk-order/:bookingId` | Bulk quote approval |
-| `/bulk-order/:bookingId/pay` | Bulk order payment |
-| `/bulk-order/payment-success` | Bulk payment success |
-| `/bulk-order/payment-failed` | Bulk payment failed |
-| `/login` | Login |
-| `/register` | Register (name + mobile OTP signup) |
-| `/order/:id` | Redirects to `/order/:id/tracking` |
-| `/order/:id/tracking` | Order tracking |
-| `*` | Not Found |
+| Path                          | Page                                |
+| ----------------------------- | ----------------------------------- |
+| `/`                           | Home                                |
+| `/shop`                       | Shop                                |
+| `/about`                      | About                               |
+| `/benefits`                   | Benefits                            |
+| `/bulk`                       | Bulk Order request form             |
+| `/contact`                    | Contact                             |
+| `/support`                    | Support (policies)                  |
+| `/checkout/success`           | Checkout success                    |
+| `/bulk-order/:bookingId`      | Bulk quote approval                 |
+| `/bulk-order/:bookingId/pay`  | Bulk order payment                  |
+| `/bulk-order/payment-success` | Bulk payment success                |
+| `/bulk-order/payment-failed`  | Bulk payment failed                 |
+| `/login`                      | Login                               |
+| `/register`                   | Register (name + mobile OTP signup) |
+| `/order/:id`                  | Redirects to `/order/:id/tracking`  |
+| `/order/:id/tracking`         | Order tracking                      |
+| `*`                           | Not Found                           |
 
 ### Customer routes (wrapped in `ProtectedRoute`, redirect to `/login` if not authenticated)
 
-| Path | Page |
-|---|---|
-| `/checkout` | Checkout |
+| Path                     | Page                  |
+| ------------------------ | --------------------- |
+| `/checkout`              | Checkout              |
 | `/subscription-checkout` | Subscription Checkout |
-| `/subscription-success` | Subscription Success |
-| `/subscriptions` | My Subscriptions |
-| `/subscriptions/:id` | Subscription Details |
-| `/profile` | Profile |
+| `/subscription-success`  | Subscription Success  |
+| `/subscriptions`         | My Subscriptions      |
+| `/subscriptions/:id`     | Subscription Details  |
+| `/profile`               | Profile               |
 
 ### Admin routes (wrapped in `ProtectedAdminRoute`, redirect to `/admin/login` if not authenticated)
 
@@ -585,7 +584,6 @@ The UI is built with Tailwind CSS responsive utilities (`sm:`, `md:`, `lg:`, `xl
 - **Loading states**: page-level `PageLoader` (route-level `Suspense` fallback in `App.js`), plus per-page skeletons/spinners (e.g. `LoadingSkeleton` on Bulk Payment, animated skeleton cards on Subscriptions, `Loader2` spinners on Profile/Orders/Tracking while fetching).
 - **API errors**: the shared axios instance normalizes error messages (`getApiErrorMessage()` in `src/lib/api.js`) and surfaces network-vs-backend failures distinctly; most pages show a `toast.error(...)` with the backend's message when available, falling back to a generic message.
 - **Empty states**: e.g. "No orders yet. Start your wellness journey!", "No Wellness Memberships Yet", "No addresses saved yet.", "No bulk bookings found." (admin).
-- **Out-of-stock state**: disabled Add to Cart/Subscribe buttons with an "Out Of Stock" badge on `ProductCard.js`.
 - **Payment failure handling**: Razorpay popup dismissal/failure is caught in `razorpayLoader.js` and surfaced as a toast (e.g. "Payment cancelled."); Bulk Order payment failures redirect to `/bulk-order/payment-failed`.
 - **Authentication errors**: invalid OTP / failed Google sign-in surface as toasts from within `AuthContext`; expired sessions trigger the `auth:expired` flow described in [§5](#5-authentication).
 
@@ -623,6 +621,7 @@ Login → /bulk (Bulk Request, single Enquiry Address) → Admin prepares Quote
 Recurring Package Product → One Payment → Cycle 1 fulfillment
         → Cycle 2 → Cycle 3 → ... → Final Cycle
 ```
+
 (Cycle scheduling and fulfillment order creation are backend-driven; the frontend only displays cycle/package status on the resulting orders — see [§8](#8-recurring-package--multi-cycle-fulfillment).)
 
 **Return**

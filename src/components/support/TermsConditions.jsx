@@ -68,8 +68,8 @@ const TermsConditions = () => {
           <h3 className="mt-6 text-2xl font-semibold text-[#2F4730]">Orders</h3>
 
           <p className="mt-5 text-gray-600 leading-8">
-            BREE reserves the right to cancel orders due to stock
-            unavailability, pricing errors, or suspected fraudulent activity.
+            BREE reserves the right to cancel orders due to pricing errors or
+            suspected fraudulent activity.
           </p>
         </div>
 

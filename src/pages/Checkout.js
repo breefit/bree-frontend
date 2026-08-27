@@ -161,16 +161,12 @@ const Checkout = () => {
   const initialise = useCallback(async () => {
     setIsInitialising(true);
     try {
-      // 1. Sync cart prices/stock with backend
+      // 1. Sync cart prices and active product status with backend
       if (typeof syncCart === "function") {
         const syncRes = await syncCart();
         if (syncRes?.anyChange) {
           const flagged = (syncRes.items || []).filter(
-            (i) =>
-              i.priceChanged ||
-              i.outOfStock ||
-              i.insufficientStock ||
-              !i.available,
+            (i) => i.priceChanged || !i.available,
           );
           if (flagged.length) {
             setCartModalItems(flagged);
@@ -241,11 +237,7 @@ const Checkout = () => {
       const syncResult = await syncCart();
       if (syncResult?.anyChange && !acceptedChanges) {
         const flagged = (syncResult.items || []).filter(
-          (i) =>
-            i.priceChanged ||
-            i.outOfStock ||
-            i.insufficientStock ||
-            !i.available,
+          (i) => i.priceChanged || !i.available,
         );
         setCartModalItems(flagged);
         setShowCartModal(true);
@@ -672,7 +664,7 @@ const Checkout = () => {
         </p>
       </div>
 
-      {/* Cart update modal — shown when syncCart detects price/stock changes */}
+      {/* Cart update modal — shown when syncCart detects changed cart data */}
       <CartUpdateModal
         visible={showCartModal}
         items={cartModalItems}

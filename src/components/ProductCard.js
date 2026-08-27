@@ -30,8 +30,6 @@ const ProductCard = ({ product, index = 0 }) => {
   const discountPercentage =
     mrp > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
 
-  const isOutOfStock = product.status === "Out Of Stock";
-
   const getShippingDisplay = (productItem) => {
     const isFree =
       productItem?.is_free_shipping === true ||
@@ -69,8 +67,6 @@ const ProductCard = ({ product, index = 0 }) => {
     product.is_subscription === 1 || product.is_subscription === true;
 
   const handleAddToCart = () => {
-    if (isOutOfStock) return;
-
     addToCart(product);
 
     setIsAdded(true);
@@ -143,12 +139,6 @@ const ProductCard = ({ product, index = 0 }) => {
 
       {/* Product Image */}
       <div className="relative h-40 md:h-52 mb-5 md:mb-6 flex items-center justify-center rounded-3xl bg-bree-bg overflow-hidden">
-        {isOutOfStock && (
-          <div className="absolute top-4 right-4 z-10 bg-red-500 text-white rounded-full px-3 py-1 text-[10px] font-semibold uppercase shadow-md">
-            Out of Stock
-          </div>
-        )}
-
         <img
           src={
             product.image && product.image.trim()
@@ -241,32 +231,22 @@ const ProductCard = ({ product, index = 0 }) => {
           <Button
             type="button"
             onClick={handleSubscribe}
-            disabled={isOutOfStock}
-            className={`w-full mt-4 py-5 rounded-full text-base font-medium transition-all duration-300 ${
-              isOutOfStock
-                ? "bg-gray-400 cursor-not-allowed opacity-70 text-white"
-                : "bg-bree-primary hover:bg-bree-primary-hover text-white"
-            }`}
+            className="w-full mt-4 py-5 rounded-full text-base font-medium transition-all duration-300 bg-bree-primary hover:bg-bree-primary-hover text-white"
           >
-            {isOutOfStock ? "Out Of Stock" : "Subscribe Now"}
+            Subscribe Now
           </Button>
         ) : (
           <Button
             type="button"
             onClick={handleAddToCart}
             data-testid={`add-to-cart-${product.id}`}
-            disabled={isOutOfStock}
             className={`w-full mt-6 py-5 rounded-full text-base font-medium transition-all duration-300 ${
-              isOutOfStock
-                ? "bg-gray-400 cursor-not-allowed opacity-70 text-white"
-                : isAdded
-                  ? "bg-bree-success text-white"
-                  : "bg-bree-primary hover:bg-bree-primary-hover text-white"
+              isAdded
+                ? "bg-bree-success text-white"
+                : "bg-bree-primary hover:bg-bree-primary-hover text-white"
             }`}
           >
-            {isOutOfStock ? (
-              <span>Out Of Stock</span>
-            ) : isAdded ? (
+            {isAdded ? (
               <span className="flex items-center justify-center gap-2">
                 <Check className="w-5 h-5" />
                 Added!

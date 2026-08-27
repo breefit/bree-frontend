@@ -70,13 +70,6 @@ const CartUpdateModal = ({
                   <h4 className="font-medium text-bree-text-primary truncate">
                     {it.name}
                   </h4>
-                  <div className="text-sm text-bree-text-secondary">
-                    {it.outOfStock ||
-                    it.outOfStock === true ||
-                    it.outOfStock === ""
-                      ? null
-                      : null}
-                  </div>
                 </div>
 
                 <div className="mt-1 text-sm text-bree-text-secondary flex items-center gap-3">
@@ -100,15 +93,9 @@ const CartUpdateModal = ({
                 </div>
 
                 <div className="mt-2 text-xs">
-                  {it.outOfStock ||
-                  it.outOfStock === true ||
-                  it.outOfStock === "" ? (
+                  {!it.available ? (
                     <span className="text-red-700">
                       This product is no longer available.
-                    </span>
-                  ) : it.insufficientStock ? (
-                    <span className="text-yellow-800">
-                      Only {it.stock} units available.
                     </span>
                   ) : null}
                 </div>

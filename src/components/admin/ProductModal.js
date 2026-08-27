@@ -15,11 +15,9 @@ const EMPTY_FORM = {
   image: "",
   description: "",
   quantity: "",
-  stockQty: "",
   features: "",
   is_subscription: false,
   popular: false,
-  status: "In Stock",
   displayOrder: "",
   journey_level: "", // 0 = unclassified; 1–4 = trial→annual
   show_recommendations: true, // hide recommendations for this product?
@@ -52,7 +50,11 @@ const validate = (form, imageFile, isEdit) => {
   }
   if (form.is_recurring_package) {
     const duration = Number(form.package_duration_months);
-    if (!form.package_duration_months || !Number.isInteger(duration) || duration < 1) {
+    if (
+      !form.package_duration_months ||
+      !Number.isInteger(duration) ||
+      duration < 1
+    ) {
       errors.package_duration_months =
         "Enter the number of fulfillment cycles (a positive whole number)";
     }
@@ -122,7 +124,6 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
             initial.journey_level !== null
               ? String(initial.journey_level)
               : "",
-          stockQty: initial.stock_qty ?? initial.stockQty ?? "",
           displayOrder: initial.display_order ?? initial.displayOrder ?? "",
           is_free_shipping:
             initial.is_free_shipping === 1 ||
@@ -217,7 +218,6 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
         price: Number(form.price),
         mrp: Number(form.mrp),
         quantity: Number(form.quantity),
-        stockQty: Number(form.stockQty || 0),
         features: form.features || "",
         displayOrder:
           form.displayOrder !== "" ? Number(form.displayOrder) : undefined,
@@ -408,20 +408,6 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
                   />
                 </div>
 
-                {/* Stock Quantity */}
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-bree-text-primary">
-                    Stock quantity
-                  </label>
-                  <input
-                    type="number"
-                    value={form.stockQty}
-                    onChange={(e) => set("stockQty", e.target.value)}
-                    placeholder="10"
-                    className="w-full h-12 px-4 rounded-2xl border border-bree-border outline-none focus:border-bree-primary"
-                  />
-                </div>
-
                 {/* Display Order */}
                 <div>
                   <label className="block text-sm font-medium mb-2 text-bree-text-primary">
@@ -523,21 +509,6 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
                     &amp; 4. Level 3 → recommends Level 4. Level 4 → no
                     recommendations.
                   </p>
-                </div>
-
-                {/* Status */}
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-bree-text-primary">
-                    Availability
-                  </label>
-                  <select
-                    value={form.status}
-                    onChange={(e) => set("status", e.target.value)}
-                    className="w-full h-12 px-4 rounded-2xl border border-bree-border outline-none focus:border-bree-primary bg-white"
-                  >
-                    <option value="In Stock">In Stock</option>
-                    <option value="Out Of Stock">Out Of Stock</option>
-                  </select>
                 </div>
 
                 {/* Description */}

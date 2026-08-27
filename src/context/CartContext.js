@@ -80,7 +80,7 @@ export const CartProvider = ({ children }) => {
     setCartItems([]);
   }, []);
 
-  // Sync cart with backend to validate prices/stock/availability
+  // Sync cart with backend to validate prices and active product availability.
   const syncCart = useCallback(async () => {
     const currentCartItems = cartItemsRef.current || [];
 
@@ -97,7 +97,7 @@ export const CartProvider = ({ children }) => {
       const res = await axios.post("/api/orders/validate-cart", payload);
       const data = res.data;
       if (data && Array.isArray(data.items)) {
-        // Apply updates where price changed or availability changed
+        // Apply updates where price changed or the product was deactivated.
         let updated = false;
         const newCart = currentCartItems.map((it) => {
           const found = data.items.find((i) => i.id === it.id);
@@ -111,13 +111,11 @@ export const CartProvider = ({ children }) => {
             };
             updated = true;
           }
-          if (found.outOfStock || found.insufficientStock || !found.available) {
+          if (!found.available) {
             updatedItem = {
               ...updatedItem,
               _unavailable: true,
               _available: found.available,
-              _stock: found.stock,
-              _requestedQty: found.requestedQty,
             };
             updated = true;
           }
@@ -155,13 +153,7 @@ export const CartProvider = ({ children }) => {
         if (updated) {
           setCartItems(newCart);
           setPendingChanges(
-            data.items.filter(
-              (i) =>
-                i.priceChanged ||
-                i.outOfStock ||
-                i.insufficientStock ||
-                !i.available,
-            ),
+            data.items.filter((i) => i.priceChanged || !i.available),
           );
           setLastSync({ at: Date.now(), result: data });
         } else {
