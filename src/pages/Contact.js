@@ -15,14 +15,14 @@ const CONTACT_INFO = [
   {
     icon: Mail,
     title: "Email",
-    value: "bree.fit.india@gmail.com",
-    link: "mailto:bree.fit.india@gmail.com",
+    value: "care@breefit.in",
+    link: "mailto:care@breefit.in",
   },
   {
     icon: Phone,
     title: "Phone",
-    value: "+91 98765 43210",
-    link: "tel:+919876543210",
+    value: "+91 88853 15072",
+    link: "tel:+918885315072",
   },
   {
     icon: MapPin,

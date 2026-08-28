@@ -43,10 +43,10 @@ const NETWORK_ERROR_MESSAGE =
 // ASSUMPTION: this project has no shared constants module visible in this file, so
 // values are declared locally. If a constants file (e.g. `@/lib/constants`) already
 // holds these, replace this block with an import from there instead of duplicating.
-const CONTACT_PHONE_DISPLAY = "+91 98765 43210";
-const CONTACT_PHONE_DIAL = "+919876543210";
-const CONTACT_WHATSAPP_DIGITS = "919876543210";
-const CONTACT_EMAIL = "hello@breewellness.in";
+const CONTACT_PHONE_DISPLAY = "+91 88853 15072";
+const CONTACT_PHONE_DIAL = "+918885315072";
+const CONTACT_WHATSAPP_DIGITS = "918885315072";
+const CONTACT_EMAIL = "care@breefit.in"; 
 
 const NOTE_ITEMS = [
   "This form is only for quotation requests.",
