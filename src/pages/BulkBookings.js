@@ -46,7 +46,7 @@ const NETWORK_ERROR_MESSAGE =
 const CONTACT_PHONE_DISPLAY = "+91 88853 15072";
 const CONTACT_PHONE_DIAL = "+918885315072";
 const CONTACT_WHATSAPP_DIGITS = "918885315072";
-const CONTACT_EMAIL = "care@breefit.in"; 
+const CONTACT_EMAIL = "care@breefit.in";
 
 const NOTE_ITEMS = [
   "This form is only for quotation requests.",
@@ -1078,16 +1078,18 @@ export default function BulkBookings() {
               💬 WhatsApp Us
             </a>
             <a
-              href={`mailto:${CONTACT_EMAIL}`}
+              href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(CONTACT_EMAIL)}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 rounded-2xl border border-[#DCE6D4] bg-[#FAFCF8] px-5 py-4 font-medium text-[#2D3A2E] transition-colors hover:border-[#7FA35C]"
             >
               ✉️ Email Us
             </a>
           </div>
 
-          <p className="mt-4 text-xs text-[#98A2B3]">
+          {/* <p className="mt-4 text-xs text-[#98A2B3]">
             {CONTACT_PHONE_DISPLAY} · {CONTACT_EMAIL}
-          </p>
+          </p> */}
         </div>
       </div>
     </section>
