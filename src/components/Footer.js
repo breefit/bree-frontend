@@ -125,21 +125,40 @@ const Footer = () => {
           </div>
 
           {/* Contact */}
+          {/* Contact */}
           <div>
             <h4 className="font-outfit font-semibold text-lg mb-4">
               Contact Us
             </h4>
+
             <ul className="space-y-3">
               <li className="flex items-start gap-3">
-                <Mail className="w-5 h-5 text-bree-accent mt-0.5" />
-                <span className="text-white/70 text-sm">care@breefit.in</span>
+                <Mail className="w-5 h-5 text-bree-accent mt-0.5 shrink-0" />
+
+                <a
+                  href="https://mail.google.com/mail/?view=cm&fs=1&to=care@breefit.in"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-white/70 text-sm hover:text-white transition-colors"
+                >
+                  care@breefit.in
+                </a>
               </li>
+
               <li className="flex items-start gap-3">
-                <Phone className="w-5 h-5 text-bree-accent mt-0.5" />
-                <span className="text-white/70 text-sm">+91 88853 15072</span>
+                <Phone className="w-5 h-5 text-bree-accent mt-0.5 shrink-0" />
+
+                <a
+                  href="tel:+918885315072"
+                  className="text-white/70 text-sm hover:text-white transition-colors"
+                >
+                  +91 88853 15072
+                </a>
               </li>
+
               <li className="flex items-start gap-3">
-                <MapPin className="w-5 h-5 text-bree-accent mt-0.5" />
+                <MapPin className="w-5 h-5 text-bree-accent mt-0.5 shrink-0" />
+
                 <span className="text-white/70 text-sm">Hyderabad, India</span>
               </li>
             </ul>
@@ -156,13 +175,13 @@ const Footer = () => {
 
             <DevelopedByStaffArc />
 
-            <div className="flex items-center gap-4">
+            {/* <div className="flex items-center gap-4">
               <img
                 src="https://razorpay.com/assets/razorpay-logo.svg"
                 alt="Razorpay"
                 className="h-5 opacity-70"
               />
-            </div>
+            </div> */}
           </div>
         </div>
       </div>
