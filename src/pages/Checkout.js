@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import axios from "@/lib/api";
 import { toast } from "sonner";
 import { loadRazorpayScript, openRazorpayCheckout } from "@/lib/razorpayLoader";
+import { calculateOrderTotals } from "@/lib/orderTotals";
 import CartUpdateModal from "@/components/CartUpdateModal";
 
 // ── Dev-only logger ────────────────────────────────────────────────────────
@@ -133,6 +134,17 @@ const LOADING_PHASE = {
   verifying: "Verifying payment…",
 };
 
+// ── Reminder configuration ─────────────────────────────────────────────────────
+const REMINDER_TIMES = ["04:00", "04:30", "05:00", "05:30", "06:00"];
+
+const getReminderTimeDisplay = (time) => {
+  const [hours, minutes] = time.split(":");
+  const hour = parseInt(hours, 10);
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  return `${String(displayHour).padStart(2, "0")}:${minutes} ${ampm}`;
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const Checkout = () => {
@@ -140,11 +152,6 @@ const Checkout = () => {
   const { cartItems, cartTotal, cartShipping, syncCart } = useCart();
   const orderSubtotal = Number(cartTotal ?? 0);
   const orderShipping = Number(cartShipping ?? 0);
-  const orderTotal = orderSubtotal + orderShipping;
-
-  devLog("[Checkout] cartTotal", orderSubtotal);
-  devLog("[Checkout] cartShipping", orderShipping);
-  devLog("[Checkout] finalTotal", orderTotal);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isInitialising, setIsInitialising] = useState(true);
@@ -153,9 +160,41 @@ const Checkout = () => {
   const [showCartModal, setShowCartModal] = useState(false);
   const [cartModalItems, setCartModalItems] = useState([]);
   const [acceptedChanges, setAcceptedChanges] = useState(false);
+  // Track reminder selections per product ID: { [productId]: { enabled: bool, time: "HH:MM" } }
+  const [reminderSelections, setReminderSelections] = useState({});
   const hasInitialisedRef = useRef(false);
 
   const isLoading = loadingPhase !== "idle";
+
+  const orderDiscount = 0;
+
+  // Calculate total reminder charges (multiply by quantity for each selected item)
+  const orderReminderCharges = cartItems.reduce((sum, item) => {
+    const reminder = reminderSelections[item.id];
+    if (
+      reminder?.enabled &&
+      item.daily_reminder_enabled &&
+      item.daily_reminder_price
+    ) {
+      const quantity = Number(item.quantity ?? 1);
+      return sum + Number(item.daily_reminder_price) * quantity;
+    }
+    return sum;
+  }, 0);
+
+  const orderTotals = calculateOrderTotals({
+    productSubtotal: orderSubtotal,
+    deliveryCharge: orderShipping,
+    dailyReminderPrice: orderReminderCharges,
+    actualDiscount: orderDiscount,
+  });
+  const orderTotal = orderTotals.finalTotal;
+
+  devLog("[Checkout] productSubtotal", orderSubtotal);
+  devLog("[Checkout] cartShipping", orderShipping);
+  devLog("[Checkout] reminderCharges", orderReminderCharges);
+  devLog("[Checkout] discount", orderDiscount);
+  devLog("[Checkout] finalTotal", orderTotal);
 
   // ── On mount: sync cart, fetch profile for Razorpay prefill ───────────────
   const initialise = useCallback(async () => {
@@ -228,6 +267,20 @@ const Checkout = () => {
       toast.error("Your cart is empty.");
       return;
     }
+
+    // Validate reminder selections: if reminder is enabled, time must be selected
+    for (const item of cartItems) {
+      if (item.daily_reminder_enabled) {
+        const reminder = reminderSelections[item.id];
+        if (reminder?.enabled && !reminder?.time) {
+          toast.error(
+            `Please select a reminder time for "${item.name}" to continue.`,
+          );
+          return;
+        }
+      }
+    }
+
     // Guard against duplicate clicks while any phase of the flow is active.
     if (isLoading) return;
 
@@ -254,9 +307,11 @@ const Checkout = () => {
 
       const lineItems = buildLineItems(cartItems);
       const lineItemsTotal = buildLineItemsTotal(lineItems);
+      const finalPayableAmount = orderTotals.finalTotal;
 
       devLog("[Checkout] Computed line_items:", lineItems);
       devLog("[Checkout] Computed line_items_total (paise):", lineItemsTotal);
+      devLog("[Checkout] Final payable amount (rupees):", finalPayableAmount);
 
       if (!lineItems.length) {
         toast.error("Your cart is empty.");
@@ -271,22 +326,46 @@ const Checkout = () => {
         return;
       }
 
+      // Build reminders array from selections (include quantity in reminder price)
+      const reminders = cartItems
+        .map((item) => {
+          const reminder = reminderSelections[item.id];
+          if (reminder?.enabled && item.daily_reminder_enabled) {
+            const quantity = Number(item.quantity ?? 1);
+            return {
+              product_id: item.id,
+              enabled: true,
+              time: reminder.time,
+              quantity: quantity, // send quantity to backend for validation
+              price: Number(item.daily_reminder_price) * quantity, // total reminder charge for this product
+              original_price: item.daily_reminder_original_price,
+            };
+          }
+          return null;
+        })
+        .filter(Boolean);
+
       // The backend also requires customerName, email, and mobileNumber at
       // order-creation time (for the DB record). shippingAddress is
       // intentionally left undefined — Razorpay Magic Checkout collects and
       // confirms the final delivery details (name, phone, email, address)
       // inside the payment popup itself.
       const createOrderPayload = {
-        amount: orderTotal,
+        amount: finalPayableAmount,
         currency: "INR",
         items: buildOrderItems(cartItems),
         line_items: lineItems,
-        line_items_total: lineItemsTotal,
+        line_items_total: Math.round(
+          (lineItemsTotal + orderReminderCharges) * 100,
+        ),
         customerName: profile?.name || "Guest",
         email: profile?.email || "",
         mobileNumber: profile?.phone || "",
         // Magic Checkout collects the delivery address during payment.
         shippingAddress: undefined,
+        // Include reminder data
+        reminders,
+        discountAmount: orderDiscount,
       };
 
       devLog(
@@ -412,6 +491,25 @@ const Checkout = () => {
           setLoadingPhase("verifying");
 
           try {
+            // Build reminders array for payment verification (include quantity in reminder price)
+            const remindersForVerification = cartItems
+              .map((item) => {
+                const reminder = reminderSelections[item.id];
+                if (reminder?.enabled && item.daily_reminder_enabled) {
+                  const quantity = Number(item.quantity ?? 1);
+                  return {
+                    product_id: item.id,
+                    enabled: true,
+                    time: reminder.time,
+                    quantity: quantity, // send quantity to backend for validation
+                    price: Number(item.daily_reminder_price) * quantity, // total reminder charge for this product
+                    original_price: item.daily_reminder_original_price,
+                  };
+                }
+                return null;
+              })
+              .filter(Boolean);
+
             const verifyPayload = {
               razorpay_order_id: response.razorpay_order_id,
 
@@ -426,6 +524,8 @@ const Checkout = () => {
               mobileNumber: response.contact || "",
 
               shippingAddress: response.address || null,
+
+              reminders: remindersForVerification,
             };
 
             const verifyResponse = await axios.post(
@@ -600,33 +700,174 @@ const Checkout = () => {
             ))}
           </div>
 
-          {/* Order totals */}
-          <div className="mt-6 pt-4 border-t border-bree-border space-y-2">
+          {/* Daily WhatsApp Reminder Add-ons */}
+          <div className="mt-6 pt-4 border-t border-bree-border space-y-4">
+            <h3 className="font-semibold text-bree-text-primary">
+              Add-ons (Optional)
+            </h3>
+
+            {cartItems.map((item) =>
+              item.daily_reminder_enabled ? (
+                <div
+                  key={`reminder-${item.id}`}
+                  className="border border-bree-border rounded-2xl p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id={`reminder-${item.id}`}
+                      checked={reminderSelections[item.id]?.enabled || false}
+                      onChange={(e) => {
+                        setReminderSelections((prev) => ({
+                          ...prev,
+                          [item.id]: {
+                            ...prev[item.id],
+                            enabled: e.target.checked,
+                            time: e.target.checked
+                              ? prev[item.id]?.time || REMINDER_TIMES[0]
+                              : null,
+                          },
+                        }));
+                      }}
+                      className="mt-0.5 h-5 w-5 rounded border-bree-border text-bree-primary accent-bree-primary"
+                    />
+                    <div className="flex-1">
+                      <label
+                        htmlFor={`reminder-${item.id}`}
+                        className="block font-medium text-bree-text-primary cursor-pointer"
+                      >
+                        Add Daily WhatsApp Reminder for {item.name}
+                      </label>
+                      <p className="text-sm text-bree-text-secondary mt-0.5">
+                        Get a WhatsApp reminder every day at your chosen time
+                      </p>
+
+                      {/* Price display */}
+                      <div className="mt-2">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-lg font-semibold text-bree-primary">
+                            ₹
+                            {Number(item.daily_reminder_price).toLocaleString(
+                              "en-IN",
+                            )}
+                          </span>
+                          {item.daily_reminder_original_price &&
+                            Number(item.daily_reminder_original_price) >
+                              Number(item.daily_reminder_price) && (
+                              <>
+                                <span className="text-sm text-bree-text-secondary line-through">
+                                  ₹
+                                  {Number(
+                                    item.daily_reminder_original_price,
+                                  ).toLocaleString("en-IN")}
+                                </span>
+                                <span className="text-sm font-medium text-green-600">
+                                  Save ₹
+                                  {(
+                                    Number(item.daily_reminder_original_price) -
+                                    Number(item.daily_reminder_price)
+                                  ).toLocaleString("en-IN")}
+                                </span>
+                              </>
+                            )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Time selector — only show if reminder is checked */}
+                  {reminderSelections[item.id]?.enabled && (
+                    <div className="mt-4 ml-8">
+                      <label className="block text-sm font-medium text-bree-text-primary mb-2">
+                        Reminder Time
+                      </label>
+                      <select
+                        value={reminderSelections[item.id]?.time || ""}
+                        onChange={(e) => {
+                          setReminderSelections((prev) => ({
+                            ...prev,
+                            [item.id]: {
+                              ...prev[item.id],
+                              time: e.target.value,
+                            },
+                          }));
+                        }}
+                        className="w-full h-11 px-4 rounded-xl border border-bree-border outline-none focus:border-bree-primary bg-white text-bree-text-primary"
+                      >
+                        <option value="">Select a time</option>
+                        {REMINDER_TIMES.map((time) => (
+                          <option key={time} value={time}>
+                            {getReminderTimeDisplay(time)} IST
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              ) : null,
+            )}
+          </div>
+
+          <div className="mt-8 pt-6 border-t-2 border-bree-border space-y-3">
+            {/* Order Summary Header */}
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-bree-text-primary">
+                Order Summary
+              </h3>
+            </div>
+
+            {/* Product Subtotal */}
             <div className="flex justify-between text-sm">
-              <span className="text-bree-text-secondary">Subtotal</span>
+              <span className="text-bree-text-secondary">
+                Subtotal (Products)
+              </span>
               <span className="font-medium text-bree-text-primary">
                 ₹{orderSubtotal.toLocaleString("en-IN")}
               </span>
             </div>
+
+            {/* Shipping */}
             <div className="space-y-2 text-sm">
-              <span className="text-bree-text-secondary">Shipping</span>
-              <div className="space-y-1.5">
-                {cartItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between gap-3 text-bree-text-primary"
-                  >
-                    <span className="truncate">{item.name}</span>
-                    <span className="font-medium text-bree-primary whitespace-nowrap">
-                      {getShippingDisplay(item)}
-                    </span>
-                  </div>
-                ))}
+              <div className="flex justify-between">
+                <span className="text-bree-text-secondary">
+                  Delivery charge
+                </span>
+                <span className="font-medium text-bree-text-primary">
+                  ₹{orderShipping.toLocaleString("en-IN")}
+                </span>
               </div>
             </div>
-            <div className="flex justify-between items-center text-lg font-bold pt-3 border-t border-bree-border">
-              <span className="text-bree-text-primary">Total</span>
-              <span className="text-bree-primary">
+
+            {/* Reminders Add-ons */}
+            {orderReminderCharges > 0 && (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-bree-text-secondary">
+                    Daily WhatsApp Reminder
+                  </span>
+                  <span className="font-medium text-bree-text-primary">
+                    ₹{orderReminderCharges.toLocaleString("en-IN")}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Real coupons or product discounts only */}
+            {orderTotals.actualDiscount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-bree-text-secondary">
+                  Discount on price
+                </span>
+                <span className="font-medium text-green-600">
+                  -₹{orderTotals.actualDiscount.toLocaleString("en-IN")}
+                </span>
+              </div>
+            )}
+
+            {/* Grand Total */}
+            <div className="flex justify-between items-center text-base font-bold pt-4 border-t-2 border-bree-border">
+              <span className="text-bree-text-primary">Grand Total</span>
+              <span className="text-lg text-bree-primary">
                 ₹{orderTotal.toLocaleString("en-IN")}
               </span>
             </div>

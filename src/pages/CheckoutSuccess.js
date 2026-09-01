@@ -270,6 +270,77 @@ const CheckoutSuccess = () => {
                 </div>
               </div>
 
+              {/* Daily Reminders */}
+              {orderDetails?.reminders && orderDetails.reminders.length > 0 && (
+                <div className="mt-10">
+                  <h3 className="font-bold mb-5">Daily WhatsApp Reminders</h3>
+                  <div className="space-y-4">
+                    {orderDetails.reminders.map((reminder) => {
+                      // Find the corresponding product name from order items
+                      const product = orderDetails.items?.find(
+                        (item) => item.product_id === reminder.product_id,
+                      );
+                      const productName = product?.product_name || "Product";
+
+                      // Format reminder time to 12-hour format
+                      const formatReminderTime = (time) => {
+                        const [hours, minutes] = time.split(":");
+                        const hour = parseInt(hours, 10);
+                        const ampm = hour >= 12 ? "PM" : "AM";
+                        const displayHour =
+                          hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+                        return `${String(displayHour).padStart(2, "0")}:${minutes} ${ampm} IST`;
+                      };
+
+                      return (
+                        <div
+                          key={reminder.id}
+                          className="border border-green-200 bg-green-50 rounded-2xl p-4"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex-1">
+                              <h4 className="font-semibold text-bree-text-primary">
+                                {productName}
+                              </h4>
+                              <p className="text-sm text-bree-text-secondary mt-1">
+                                Daily reminder at{" "}
+                                <span className="font-medium text-green-700">
+                                  {formatReminderTime(reminder.reminder_time)}
+                                </span>
+                              </p>
+                              {reminder.reminder_start_date && (
+                                <p className="text-xs text-bree-text-secondary mt-2">
+                                  Starts:{" "}
+                                  {new Date(
+                                    reminder.reminder_start_date,
+                                  ).toLocaleDateString("en-IN")}{" "}
+                                  |{" "}
+                                  {reminder.reminder_end_date &&
+                                    `Ends: ${new Date(
+                                      reminder.reminder_end_date,
+                                    ).toLocaleDateString("en-IN")}`}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex-shrink-0">
+                              <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">
+                                Active
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-2xl">
+                    <p className="text-sm text-blue-800">
+                      💬 You'll receive daily WhatsApp reminders as per your
+                      scheduled time, starting from your delivery date.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Action buttons */}
               <div className="mt-10 grid md:grid-cols-3 gap-4">
                 <Link

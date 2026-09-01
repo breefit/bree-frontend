@@ -27,6 +27,9 @@ const EMPTY_FORM = {
   is_recurring_package: false, // pay once, ship N times — distinct from is_subscription
   package_duration_months: "", // number of fulfillment cycles
   package_fulfillment_interval_days: "30", // gap between cycles
+  daily_reminder_enabled: false, // optional paid reminder add-on
+  daily_reminder_price: "", // price customer pays
+  daily_reminder_original_price: "", // original price (for discount display)
 };
 
 const JOURNEY_LEVEL_OPTIONS = [
@@ -65,6 +68,31 @@ const validate = (form, imageFile, isEdit) => {
     ) {
       errors.package_fulfillment_interval_days =
         "Interval must be a positive whole number of days";
+    }
+  }
+  // Validate reminder prices if reminder is enabled
+  if (form.daily_reminder_enabled) {
+    const reminderPrice = form.daily_reminder_price
+      ? Number(form.daily_reminder_price)
+      : null;
+    const originalPrice = form.daily_reminder_original_price
+      ? Number(form.daily_reminder_original_price)
+      : null;
+    if (reminderPrice === null || reminderPrice < 0) {
+      errors.daily_reminder_price =
+        "Reminder price is required and must be ≥ 0";
+    }
+    if (originalPrice === null || originalPrice < 0) {
+      errors.daily_reminder_original_price =
+        "Original reminder price is required and must be ≥ 0";
+    }
+    if (
+      reminderPrice !== null &&
+      originalPrice !== null &&
+      reminderPrice > originalPrice
+    ) {
+      errors.daily_reminder_price =
+        "Reminder price cannot exceed original price";
     }
   }
   return errors;
@@ -142,6 +170,19 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
             ? initial.features.join(", ")
             : typeof initial.features === "string"
               ? initial.features
+              : "",
+          daily_reminder_enabled:
+            initial.daily_reminder_enabled === 1 ||
+            initial.daily_reminder_enabled === true,
+          daily_reminder_price:
+            initial.daily_reminder_price !== undefined &&
+            initial.daily_reminder_price !== null
+              ? String(initial.daily_reminder_price)
+              : "",
+          daily_reminder_original_price:
+            initial.daily_reminder_original_price !== undefined &&
+            initial.daily_reminder_original_price !== null
+              ? String(initial.daily_reminder_original_price)
               : "",
         };
 
@@ -237,6 +278,13 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
           ? 0
           : Number(form.shipping_charge || 0),
         estimated_delivery: form.estimated_delivery || "3–7 Business Days",
+        daily_reminder_enabled: form.daily_reminder_enabled,
+        daily_reminder_price: form.daily_reminder_enabled
+          ? Number(form.daily_reminder_price || 0)
+          : undefined,
+        daily_reminder_original_price: form.daily_reminder_enabled
+          ? Number(form.daily_reminder_original_price || 0)
+          : undefined,
         imageFile,
       };
 
@@ -672,6 +720,77 @@ const ProductModal = ({ open, onClose, onSave, initial = null }) => {
                     onChange={(e) => set("popular", e.target.checked)}
                     className="w-5 h-5 accent-bree-primary"
                   />
+                </div>
+
+                {/* Daily WhatsApp Reminder */}
+                <div className="border border-bree-border rounded-2xl px-4 py-3 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-bree-text-primary">
+                        Daily WhatsApp Reminder
+                      </p>
+                      <p className="text-sm text-bree-text-secondary">
+                        Optional paid add-on for daily wellness reminders
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.daily_reminder_enabled}
+                      onChange={(e) =>
+                        set("daily_reminder_enabled", e.target.checked)
+                      }
+                      className="w-5 h-5 accent-bree-primary"
+                    />
+                  </div>
+
+                  {form.daily_reminder_enabled && (
+                    <div className="grid gap-4 md:grid-cols-2 pt-1">
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-bree-text-primary">
+                          Reminder Price (₹)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={form.daily_reminder_price}
+                          onChange={(e) =>
+                            set("daily_reminder_price", e.target.value)
+                          }
+                          placeholder="49"
+                          className="w-full h-12 px-4 rounded-2xl border border-bree-border outline-none focus:border-bree-primary"
+                        />
+                        {errors.daily_reminder_price && (
+                          <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            {errors.daily_reminder_price}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-bree-text-primary">
+                          Original Price (₹)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={form.daily_reminder_original_price}
+                          onChange={(e) =>
+                            set("daily_reminder_original_price", e.target.value)
+                          }
+                          placeholder="49"
+                          className="w-full h-12 px-4 rounded-2xl border border-bree-border outline-none focus:border-bree-primary"
+                        />
+                        {errors.daily_reminder_original_price && (
+                          <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            {errors.daily_reminder_original_price}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
