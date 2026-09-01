@@ -137,6 +137,26 @@ const LOADING_PHASE = {
 // ── Reminder configuration ─────────────────────────────────────────────────────
 const REMINDER_TIMES = ["04:00", "04:30", "05:00", "05:30", "06:00"];
 
+const isValidReminderPhone = (value) => {
+  if (!value) return false;
+  const digits = String(value).replace(/\D/g, "");
+  if (!digits) return false;
+  if (digits.length === 10) return /^[6-9]/.test(digits);
+  if (digits.length === 12) return /^91[6-9]/.test(digits);
+  return false;
+};
+
+const getReminderPhoneDisplay = (phone) => {
+  if (!phone) return "";
+  const digits = String(phone).replace(/\D/g, "");
+  if (digits.length === 10)
+    return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
+  if (digits.length === 12 && digits.startsWith("91")) {
+    return `+91 ${digits.slice(2, 7)} ${digits.slice(7)}`;
+  }
+  return phone;
+};
+
 const getReminderTimeDisplay = (time) => {
   const [hours, minutes] = time.split(":");
   const hour = parseInt(hours, 10);
@@ -160,9 +180,23 @@ const Checkout = () => {
   const [showCartModal, setShowCartModal] = useState(false);
   const [cartModalItems, setCartModalItems] = useState([]);
   const [acceptedChanges, setAcceptedChanges] = useState(false);
-  // Track reminder selections per product ID: { [productId]: { enabled: bool, time: "HH:MM" } }
+  // Track reminder selections per product ID: {
+  //   enabled: bool,
+  //   time: "HH:MM",
+  //   phoneSource: "profile" | "custom",
+  //   customPhone: string
+  // }
   const [reminderSelections, setReminderSelections] = useState({});
   const hasInitialisedRef = useRef(false);
+
+  const getReminderSelectedPhone = (itemId) => {
+    const reminder = reminderSelections[itemId];
+    if (!reminder?.enabled) return "";
+    if (reminder.phoneSource === "custom") {
+      return reminder.customPhone || "";
+    }
+    return profile?.phone || "";
+  };
 
   const isLoading = loadingPhase !== "idle";
 
@@ -268,7 +302,7 @@ const Checkout = () => {
       return;
     }
 
-    // Validate reminder selections: if reminder is enabled, time must be selected
+    // Validate reminder selections: if reminder is enabled, time and recipient number must be valid
     for (const item of cartItems) {
       if (item.daily_reminder_enabled) {
         const reminder = reminderSelections[item.id];
@@ -277,6 +311,22 @@ const Checkout = () => {
             `Please select a reminder time for "${item.name}" to continue.`,
           );
           return;
+        }
+
+        if (reminder?.enabled) {
+          const phoneSource =
+            reminder.phoneSource === "custom" ? "custom" : "profile";
+          const selectedPhone =
+            phoneSource === "custom"
+              ? reminder.customPhone || ""
+              : profile?.phone || "";
+
+          if (!selectedPhone || !isValidReminderPhone(selectedPhone)) {
+            toast.error(
+              `Please provide a valid WhatsApp number for "${item.name}" to continue.`,
+            );
+            return;
+          }
         }
       }
     }
@@ -339,6 +389,12 @@ const Checkout = () => {
               quantity: quantity, // send quantity to backend for validation
               price: Number(item.daily_reminder_price) * quantity, // total reminder charge for this product
               original_price: item.daily_reminder_original_price,
+              reminder_whatsapp_number:
+                reminder.phoneSource === "custom"
+                  ? reminder.customPhone || ""
+                  : profile?.phone || "",
+              reminder_phone_source:
+                reminder.phoneSource === "custom" ? "custom" : "profile",
             };
           }
           return null;
@@ -504,6 +560,12 @@ const Checkout = () => {
                     quantity: quantity, // send quantity to backend for validation
                     price: Number(item.daily_reminder_price) * quantity, // total reminder charge for this product
                     original_price: item.daily_reminder_original_price,
+                    reminder_whatsapp_number:
+                      reminder.phoneSource === "custom"
+                        ? reminder.customPhone || ""
+                        : profile?.phone || "",
+                    reminder_phone_source:
+                      reminder.phoneSource === "custom" ? "custom" : "profile",
                   };
                 }
                 return null;
@@ -718,6 +780,7 @@ const Checkout = () => {
                       id={`reminder-${item.id}`}
                       checked={reminderSelections[item.id]?.enabled || false}
                       onChange={(e) => {
+                        const hasSavedPhone = Boolean(profile?.phone);
                         setReminderSelections((prev) => ({
                           ...prev,
                           [item.id]: {
@@ -726,6 +789,11 @@ const Checkout = () => {
                             time: e.target.checked
                               ? prev[item.id]?.time || REMINDER_TIMES[0]
                               : null,
+                            phoneSource: e.target.checked
+                              ? prev[item.id]?.phoneSource ||
+                                (hasSavedPhone ? "profile" : "custom")
+                              : prev[item.id]?.phoneSource || "profile",
+                            customPhone: prev[item.id]?.customPhone || "",
                           },
                         }));
                       }}
@@ -777,30 +845,130 @@ const Checkout = () => {
 
                   {/* Time selector — only show if reminder is checked */}
                   {reminderSelections[item.id]?.enabled && (
-                    <div className="mt-4 ml-8">
-                      <label className="block text-sm font-medium text-bree-text-primary mb-2">
-                        Reminder Time
-                      </label>
-                      <select
-                        value={reminderSelections[item.id]?.time || ""}
-                        onChange={(e) => {
-                          setReminderSelections((prev) => ({
-                            ...prev,
-                            [item.id]: {
-                              ...prev[item.id],
-                              time: e.target.value,
-                            },
-                          }));
-                        }}
-                        className="w-full h-11 px-4 rounded-xl border border-bree-border outline-none focus:border-bree-primary bg-white text-bree-text-primary"
-                      >
-                        <option value="">Select a time</option>
-                        {REMINDER_TIMES.map((time) => (
-                          <option key={time} value={time}>
-                            {getReminderTimeDisplay(time)} IST
-                          </option>
-                        ))}
-                      </select>
+                    <div className="mt-4 ml-8 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-bree-text-primary mb-2">
+                          Reminder Time
+                        </label>
+                        <select
+                          value={reminderSelections[item.id]?.time || ""}
+                          onChange={(e) => {
+                            setReminderSelections((prev) => ({
+                              ...prev,
+                              [item.id]: {
+                                ...prev[item.id],
+                                time: e.target.value,
+                              },
+                            }));
+                          }}
+                          className="w-full h-11 px-4 rounded-xl border border-bree-border outline-none focus:border-bree-primary bg-white text-bree-text-primary"
+                        >
+                          <option value="">Select a time</option>
+                          {REMINDER_TIMES.map((time) => (
+                            <option key={time} value={time}>
+                              {getReminderTimeDisplay(time)} IST
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-bree-text-primary mb-2">
+                          Daily WhatsApp Reminder Number
+                        </label>
+
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm text-bree-text-primary">
+                            <input
+                              type="radio"
+                              name={`reminder-phone-${item.id}`}
+                              checked={
+                                (reminderSelections[item.id]?.phoneSource ||
+                                  "profile") === "profile"
+                              }
+                              onChange={() => {
+                                setReminderSelections((prev) => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...prev[item.id],
+                                    phoneSource: "profile",
+                                  },
+                                }));
+                              }}
+                            />
+                            <span>
+                              Use existing phone number
+                              {profile?.phone
+                                ? ` (${getReminderPhoneDisplay(profile.phone)})`
+                                : ""}
+                            </span>
+                          </label>
+
+                          <label className="flex items-center gap-2 text-sm text-bree-text-primary">
+                            <input
+                              type="radio"
+                              name={`reminder-phone-${item.id}`}
+                              checked={
+                                (reminderSelections[item.id]?.phoneSource ||
+                                  "profile") === "custom"
+                              }
+                              onChange={() => {
+                                setReminderSelections((prev) => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...prev[item.id],
+                                    phoneSource: "custom",
+                                  },
+                                }));
+                              }}
+                            />
+                            <span>Use a different WhatsApp number</span>
+                          </label>
+                        </div>
+
+                        {(reminderSelections[item.id]?.phoneSource ||
+                          "profile") === "custom" && (
+                          <div className="mt-2">
+                            <input
+                              type="tel"
+                              value={
+                                reminderSelections[item.id]?.customPhone || ""
+                              }
+                              onChange={(e) => {
+                                setReminderSelections((prev) => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...prev[item.id],
+                                    customPhone: e.target.value,
+                                  },
+                                }));
+                              }}
+                              placeholder="Enter WhatsApp number"
+                              className="w-full h-11 px-4 rounded-xl border border-bree-border outline-none focus:border-bree-primary bg-white text-bree-text-primary"
+                            />
+                            {!isValidReminderPhone(
+                              reminderSelections[item.id]?.customPhone || "",
+                            ) &&
+                              (reminderSelections[item.id]?.customPhone || "")
+                                .length > 0 && (
+                                <p className="mt-1 text-xs text-red-600">
+                                  Enter a valid 10-digit Indian mobile number or
+                                  91-prefixed version.
+                                </p>
+                              )}
+                          </div>
+                        )}
+
+                        <p className="mt-2 text-xs text-bree-text-secondary">
+                          Daily WhatsApp reminders will be sent to{" "}
+                          {getReminderSelectedPhone(item.id)
+                            ? getReminderPhoneDisplay(
+                                getReminderSelectedPhone(item.id),
+                              )
+                            : "your selected contact"}
+                          .
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
