@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -19,6 +19,7 @@ import {
   Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import axios from "@/lib/api";
 import { formatReminderTime, maskWhatsAppNumber } from "@/lib/reminderDisplay";
 
 /* ─────────────────────── helpers ─────────────────────── */
@@ -144,9 +145,22 @@ const SubscriptionSuccess = () => {
     subscriptionId,
     subscriptionStatus,
     nextBillingDate,
+    orderDbId,
     subscriptionPrice,
     reminders,
   } = state;
+  const [orderDetails, setOrderDetails] = useState(null);
+
+  useEffect(() => {
+    if (!orderDbId) return;
+
+    axios
+      .get(`/api/orders/${orderDbId}`)
+      .then((response) => setOrderDetails(response.data))
+      .catch(() => {
+        // Keep navigation state as a fallback for older or delayed orders.
+      });
+  }, [orderDbId]);
 
   const title = useMemo(
     () =>
@@ -157,16 +171,28 @@ const SubscriptionSuccess = () => {
   );
 
   const displayPrice = subscriptionPrice || product?.price;
-  const reminderCards = Array.isArray(reminders)
-    ? reminders.filter((reminder) => reminder?.enabled !== false)
-    : [];
+  const reminderCards = Array.isArray(orderDetails?.reminders)
+    ? orderDetails.reminders.filter(
+        (reminder) => reminder?.reminder_enabled !== 0,
+      )
+    : Array.isArray(reminders)
+      ? reminders
+          .filter((reminder) => reminder?.enabled !== false)
+          .map((reminder) => ({
+            ...reminder,
+            reminder_enabled: 1,
+            reminder_price_paid: reminder.price,
+            reminder_time: reminder.time,
+          }))
+      : [];
   const reminderPrice = reminderCards.reduce(
-    (total, reminder) => total + Number(reminder?.price || 0),
+    (total, reminder) => total + Number(reminder?.reminder_price_paid || 0),
     0,
   );
-  const amountPaid =
+  const amountPaid = orderDetails?.total ?? null;
+  const fallbackAmountPaid =
     Number(subscriptionPrice || product?.price || 0) + reminderPrice;
-  const reminderTime = reminderCards[0]?.time;
+  const reminderTime = reminderCards[0]?.reminder_time;
 
   return (
     <div className="pt-24 min-h-screen bg-bree-bg pb-20">
@@ -336,7 +362,7 @@ const SubscriptionSuccess = () => {
                     Daily WhatsApp Reminder
                   </span>
                   <span className="font-semibold text-bree-text-primary">
-                    {formatAmount(reminderPrice)}
+                    {formatAmount(reminderPrice) || "—"}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -352,7 +378,9 @@ const SubscriptionSuccess = () => {
             <div className="flex justify-between items-center border-t border-bree-border pt-3">
               <span className="text-bree-text-secondary">Amount Paid</span>
               <span className="font-semibold text-bree-text-primary">
-                {formatAmount(amountPaid) || "—"}
+                {formatAmount(
+                  amountPaid ?? (orderDbId ? null : fallbackAmountPaid),
+                ) || "—"}
               </span>
             </div>
           </div>
@@ -377,7 +405,7 @@ const SubscriptionSuccess = () => {
 
                 return (
                   <div
-                    key={`${reminder.product_id}-${reminder.time}`}
+                    key={`${reminder.product_id}-${reminder.reminder_time}`}
                     className="rounded-2xl border border-bree-border bg-bree-bg p-4"
                   >
                     <div className="flex items-start gap-3">
@@ -393,7 +421,8 @@ const SubscriptionSuccess = () => {
                           Daily wellness reminders enabled
                         </p>
                         <p className="text-sm text-bree-text-secondary mt-1">
-                          Reminder time: {formatReminderTime(reminder.time)}
+                          Reminder time:{" "}
+                          {formatReminderTime(reminder.reminder_time)}
                         </p>
                         <p className="text-sm text-bree-text-secondary mt-1">
                           WhatsApp: {maskWhatsAppNumber(phoneValue)}

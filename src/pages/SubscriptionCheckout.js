@@ -388,6 +388,7 @@ const SubscriptionCheckout = () => {
               "active",
             nextBillingDate:
               verifyResult.next_billing_date || response.next_billing_date,
+            orderDbId: verifyResult.order_id || response.order_db_id,
             subscriptionPrice,
             reminders,
           },
