@@ -160,6 +160,13 @@ const SubscriptionSuccess = () => {
   const reminderCards = Array.isArray(reminders)
     ? reminders.filter((reminder) => reminder?.enabled !== false)
     : [];
+  const reminderPrice = reminderCards.reduce(
+    (total, reminder) => total + Number(reminder?.price || 0),
+    0,
+  );
+  const amountPaid =
+    Number(subscriptionPrice || product?.price || 0) + reminderPrice;
+  const reminderTime = reminderCards[0]?.time;
 
   return (
     <div className="pt-24 min-h-screen bg-bree-bg pb-20">
@@ -297,6 +304,56 @@ const SubscriptionSuccess = () => {
             </p>
             <div className="flex items-center gap-1.5 text-xs font-semibold text-bree-primary">
               <Sparkles className="w-3.5 h-3.5" /> Premium Member
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-[28px] bg-white border border-bree-border p-6 shadow-sm">
+          <h2 className="text-base font-bold text-bree-text-primary uppercase tracking-wide mb-5">
+            Order Status
+          </h2>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between items-center">
+              <span className="text-bree-text-secondary">Status</span>
+              <span className="font-semibold text-bree-text-primary">Paid</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-bree-text-secondary">
+                Estimated Delivery
+              </span>
+              <span className="font-semibold text-bree-text-primary">
+                5–7 Business Days
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-bree-text-secondary">Shipping</span>
+              <span className="font-semibold text-bree-text-primary">Free</span>
+            </div>
+            {reminderCards.length > 0 && (
+              <>
+                <div className="flex justify-between items-center">
+                  <span className="text-bree-text-secondary">
+                    Daily WhatsApp Reminder
+                  </span>
+                  <span className="font-semibold text-bree-text-primary">
+                    {formatAmount(reminderPrice)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-bree-text-secondary">
+                    Reminder Time
+                  </span>
+                  <span className="font-semibold text-bree-text-primary">
+                    {formatReminderTime(reminderTime)}
+                  </span>
+                </div>
+              </>
+            )}
+            <div className="flex justify-between items-center border-t border-bree-border pt-3">
+              <span className="text-bree-text-secondary">Amount Paid</span>
+              <span className="font-semibold text-bree-text-primary">
+                {formatAmount(amountPaid) || "—"}
+              </span>
             </div>
           </div>
         </div>

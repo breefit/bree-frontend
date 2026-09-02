@@ -66,6 +66,11 @@ const CheckoutSuccess = () => {
         (reminder) => reminder?.reminder_enabled !== 0,
       )
     : [];
+  const reminderPrice = reminderCards.reduce(
+    (total, reminder) => total + Number(reminder?.reminder_price_paid || 0),
+    0,
+  );
+  const reminderTime = reminderCards[0]?.reminder_time;
 
   useEffect(() => {
     const fetchOrder = async () => {
@@ -193,6 +198,18 @@ const CheckoutSuccess = () => {
                     />
                   )}
                   <Info label="Shipping" value={shippingDisplay} />
+                  {reminderCards.length > 0 && (
+                    <>
+                      <Info
+                        label="Daily WhatsApp Reminder"
+                        value={`₹${reminderPrice.toLocaleString("en-IN")}`}
+                      />
+                      <Info
+                        label="Reminder Time"
+                        value={formatReminderTime(reminderTime)}
+                      />
+                    </>
+                  )}
                   <Info
                     label="Amount Paid"
                     value={orderDetails?.total ? `₹${orderDetails.total}` : "—"}
