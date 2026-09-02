@@ -146,16 +146,28 @@ const isValidReminderPhone = (value) => {
   return false;
 };
 
-const getReminderPhoneDisplay = (phone) => {
+const maskPhoneNumber = (phone) => {
   if (!phone) return "";
+
   const digits = String(phone).replace(/\D/g, "");
-  if (digits.length === 10)
-    return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
-  if (digits.length === 12 && digits.startsWith("91")) {
-    return `+91 ${digits.slice(2, 7)} ${digits.slice(7)}`;
+  if (!digits) return "";
+
+  if (digits.length === 10) {
+    return `+91 XXXXXX${digits.slice(-4)}`;
   }
+
+  if (digits.length === 12 && digits.startsWith("91")) {
+    return `+91 XXXXXX${digits.slice(-4)}`;
+  }
+
+  if (digits.length > 4) {
+    return `+91 XXXXXX${digits.slice(-4)}`;
+  }
+
   return phone;
 };
+
+const getReminderPhoneDisplay = (phone) => maskPhoneNumber(phone);
 
 const getReminderTimeDisplay = (time) => {
   const [hours, minutes] = time.split(":");
@@ -899,7 +911,7 @@ const Checkout = () => {
                             <span>
                               Use existing phone number
                               {profile?.phone
-                                ? ` (${getReminderPhoneDisplay(profile.phone)})`
+                                ? ` (${maskPhoneNumber(profile.phone)})`
                                 : ""}
                             </span>
                           </label>
@@ -962,9 +974,7 @@ const Checkout = () => {
                         <p className="mt-2 text-xs text-bree-text-secondary">
                           Daily WhatsApp reminders will be sent to{" "}
                           {getReminderSelectedPhone(item.id)
-                            ? getReminderPhoneDisplay(
-                                getReminderSelectedPhone(item.id),
-                              )
+                            ? maskPhoneNumber(getReminderSelectedPhone(item.id))
                             : "your selected contact"}
                           .
                         </p>

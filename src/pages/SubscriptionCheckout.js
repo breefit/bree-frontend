@@ -20,6 +20,46 @@ import axios from "@/lib/api";
 import { openRazorpayCheckout } from "@/lib/razorpayLoader";
 import { createSubscription } from "@/services/subscriptionService";
 
+const REMINDER_TIMES = ["04:00", "04:30", "05:00", "05:30", "06:00"];
+
+const maskPhoneNumber = (phone) => {
+  if (!phone) return "";
+
+  const digits = String(phone).replace(/\D/g, "");
+  if (!digits) return "";
+
+  if (digits.length === 10) {
+    return `+91 XXXXXX${digits.slice(-4)}`;
+  }
+
+  if (digits.length === 12 && digits.startsWith("91")) {
+    return `+91 XXXXXX${digits.slice(-4)}`;
+  }
+
+  if (digits.length > 4) {
+    return `+91 XXXXXX${digits.slice(-4)}`;
+  }
+
+  return phone;
+};
+
+const isValidReminderPhone = (value) => {
+  if (!value) return false;
+  const digits = String(value).replace(/\D/g, "");
+  if (!digits) return false;
+  if (digits.length === 10) return /^[6-9]/.test(digits);
+  if (digits.length === 12) return /^91[6-9]/.test(digits);
+  return false;
+};
+
+const getReminderTimeDisplay = (time) => {
+  const [hours, minutes] = time.split(":");
+  const hour = parseInt(hours, 10);
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  return `${String(displayHour).padStart(2, "0")}:${minutes} ${ampm}`;
+};
+
 // ── verifySubscriptionPayment ────────────────────────────────────────────────
 // Calls the backend /api/payment/verify endpoint with the subscription payment
 // response. This is required to update payment_status → 'paid',
@@ -99,6 +139,7 @@ const SubscriptionCheckout = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
+  const [reminderSelections, setReminderSelections] = useState({});
   // FIX: tracks a 409 "duplicate active subscription" response from the
   // backend. Once set, the CTA stays disabled so the user can't keep
   // retrying checkout for a product they're already subscribed to.
@@ -189,17 +230,46 @@ const SubscriptionCheckout = () => {
     }
   };
 
+  const reminderSelection = reminderSelections[product?.id];
+  const reminderEnabled = Boolean(
+    reminderSelection?.enabled && product?.daily_reminder_enabled,
+  );
+  const reminderPrice =
+    reminderEnabled && product?.daily_reminder_price
+      ? Number(product.daily_reminder_price)
+      : 0;
+  const totalDueToday = Number(subscriptionPrice || 0) + reminderPrice;
+  const reminderPhoneValue =
+    reminderEnabled && reminderSelection?.phoneSource === "custom"
+      ? reminderSelection.customPhone || ""
+      : contactInfo.phone || "";
+
   const canSubmit = useMemo(() => {
-    return (
+    const baseValid =
       contactInfo.name.trim() &&
       contactInfo.email.trim() &&
       contactInfo.phone.trim() &&
       shippingForm.address_line1.trim() &&
       shippingForm.city.trim() &&
       shippingForm.state.trim() &&
-      shippingForm.pincode.trim()
-    );
-  }, [contactInfo, shippingForm]);
+      shippingForm.pincode.trim();
+
+    if (!baseValid) return false;
+
+    if (!reminderEnabled) return true;
+    if (!reminderSelection?.time) return false;
+    if (!reminderPhoneValue || !isValidReminderPhone(reminderPhoneValue)) {
+      return false;
+    }
+
+    return true;
+  }, [
+    contactInfo,
+    shippingForm,
+    reminderEnabled,
+    reminderSelection,
+    reminderPhoneValue,
+  ]);
 
   const handleStartSubscription = async () => {
     if (!canSubmit || !product) {
@@ -207,7 +277,45 @@ const SubscriptionCheckout = () => {
       return;
     }
 
+    if (reminderEnabled) {
+      if (!reminderSelection?.time) {
+        toast.error("Please select a reminder time.");
+        return;
+      }
+
+      const selectedPhone =
+        reminderSelection.phoneSource === "custom"
+          ? reminderSelection.customPhone || ""
+          : contactInfo.phone || "";
+
+      if (!selectedPhone || !isValidReminderPhone(selectedPhone)) {
+        toast.error("Please enter a valid WhatsApp number.");
+        return;
+      }
+    }
+
     setIsLoading(true);
+
+    const reminders = reminderEnabled
+      ? [
+          {
+            product_id: product.id,
+            enabled: true,
+            time: reminderSelection.time,
+            quantity: 1,
+            price: reminderPrice,
+            original_price: Number(
+              product.daily_reminder_original_price || reminderPrice,
+            ),
+            reminder_phone_source:
+              reminderSelection.phoneSource === "custom" ? "custom" : "profile",
+            reminder_whatsapp_number:
+              reminderSelection.phoneSource === "custom"
+                ? reminderSelection.customPhone || contactInfo.phone
+                : contactInfo.phone,
+          },
+        ]
+      : [];
 
     const shippingAddress = [
       shippingForm.address_line1,
@@ -227,6 +335,7 @@ const SubscriptionCheckout = () => {
         shippingAddress,
         addressId: selectedAddressId || null,
         contactInfo,
+        reminders,
       });
 
       const checkoutResult = await openRazorpayCheckout({
@@ -661,15 +770,225 @@ const SubscriptionCheckout = () => {
                 )}
               </div>
 
+              {reminderPrice > 0 && (
+                <div className="flex justify-between text-sm py-2">
+                  <span className="text-bree-text-secondary">
+                    Daily WhatsApp Reminder
+                  </span>
+                  <span className="font-medium text-bree-text-primary">
+                    ₹{reminderPrice.toLocaleString("en-IN")}
+                  </span>
+                </div>
+              )}
+
               {/* Total */}
               <div className="flex justify-between items-center pt-5 mb-7">
                 <span className="font-semibold text-bree-text-primary">
                   Total Due Today
                 </span>
                 <span className="font-outfit text-3xl font-bold text-bree-primary">
-                  ₹{subscriptionPrice}
+                  ₹{totalDueToday.toLocaleString("en-IN")}
                 </span>
               </div>
+
+              {product?.daily_reminder_enabled && (
+                <div className="mb-6 border border-bree-border rounded-2xl p-4 bg-bree-bg/40">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id="subscription-reminder-toggle"
+                      checked={Boolean(reminderSelection?.enabled)}
+                      onChange={(e) => {
+                        const hasSavedPhone = Boolean(contactInfo.phone);
+                        setReminderSelections((prev) => ({
+                          ...prev,
+                          [product.id]: {
+                            ...prev[product.id],
+                            enabled: e.target.checked,
+                            time: e.target.checked
+                              ? prev[product.id]?.time || REMINDER_TIMES[0]
+                              : null,
+                            phoneSource: e.target.checked
+                              ? prev[product.id]?.phoneSource ||
+                                (hasSavedPhone ? "profile" : "custom")
+                              : prev[product.id]?.phoneSource || "profile",
+                            customPhone: prev[product.id]?.customPhone || "",
+                          },
+                        }));
+                      }}
+                      className="mt-1 h-5 w-5 rounded border-bree-border text-bree-primary accent-bree-primary"
+                    />
+                    <div className="flex-1">
+                      <label
+                        htmlFor="subscription-reminder-toggle"
+                        className="block font-medium text-bree-text-primary cursor-pointer"
+                      >
+                        Add Daily WhatsApp Reminder
+                      </label>
+                      <p className="text-sm text-bree-text-secondary mt-1">
+                        Get a gentle daily message at your chosen time.
+                      </p>
+
+                      {product?.daily_reminder_price && (
+                        <div className="mt-2 flex items-baseline gap-2">
+                          <span className="text-lg font-semibold text-bree-primary">
+                            ₹
+                            {Number(
+                              product.daily_reminder_price,
+                            ).toLocaleString("en-IN")}
+                          </span>
+                          {product?.daily_reminder_original_price &&
+                            Number(product.daily_reminder_original_price) >
+                              Number(product.daily_reminder_price) && (
+                              <>
+                                <span className="text-sm text-bree-text-secondary line-through">
+                                  ₹
+                                  {Number(
+                                    product.daily_reminder_original_price,
+                                  ).toLocaleString("en-IN")}
+                                </span>
+                                <span className="text-sm font-medium text-green-600">
+                                  Save ₹
+                                  {(
+                                    Number(
+                                      product.daily_reminder_original_price,
+                                    ) - Number(product.daily_reminder_price)
+                                  ).toLocaleString("en-IN")}
+                                </span>
+                              </>
+                            )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {reminderSelection?.enabled && (
+                    <div className="mt-4 space-y-4 pl-8">
+                      <div>
+                        <label className="block text-sm font-medium text-bree-text-primary mb-2">
+                          Reminder Time
+                        </label>
+                        <select
+                          value={reminderSelection?.time || ""}
+                          onChange={(e) => {
+                            setReminderSelections((prev) => ({
+                              ...prev,
+                              [product.id]: {
+                                ...prev[product.id],
+                                time: e.target.value,
+                              },
+                            }));
+                          }}
+                          className="w-full h-11 px-4 rounded-xl border border-bree-border outline-none focus:border-bree-primary bg-white text-bree-text-primary"
+                        >
+                          <option value="">Select a time</option>
+                          {REMINDER_TIMES.map((time) => (
+                            <option key={time} value={time}>
+                              {getReminderTimeDisplay(time)} IST
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-bree-text-primary mb-2">
+                          Daily WhatsApp Reminder Number
+                        </label>
+
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm text-bree-text-primary">
+                            <input
+                              type="radio"
+                              name={`subscription-reminder-phone`}
+                              checked={
+                                (reminderSelection?.phoneSource ||
+                                  "profile") === "profile"
+                              }
+                              onChange={() => {
+                                setReminderSelections((prev) => ({
+                                  ...prev,
+                                  [product.id]: {
+                                    ...prev[product.id],
+                                    phoneSource: "profile",
+                                  },
+                                }));
+                              }}
+                            />
+                            <span>
+                              Use existing phone number
+                              {contactInfo.phone
+                                ? ` (${maskPhoneNumber(contactInfo.phone)})`
+                                : ""}
+                            </span>
+                          </label>
+
+                          <label className="flex items-center gap-2 text-sm text-bree-text-primary">
+                            <input
+                              type="radio"
+                              name={`subscription-reminder-phone`}
+                              checked={
+                                (reminderSelection?.phoneSource ||
+                                  "profile") === "custom"
+                              }
+                              onChange={() => {
+                                setReminderSelections((prev) => ({
+                                  ...prev,
+                                  [product.id]: {
+                                    ...prev[product.id],
+                                    phoneSource: "custom",
+                                  },
+                                }));
+                              }}
+                            />
+                            <span>Use a different WhatsApp number</span>
+                          </label>
+                        </div>
+
+                        {(reminderSelection?.phoneSource || "profile") ===
+                          "custom" && (
+                          <div className="mt-2">
+                            <Input
+                              type="tel"
+                              value={reminderSelection?.customPhone || ""}
+                              onChange={(e) => {
+                                setReminderSelections((prev) => ({
+                                  ...prev,
+                                  [product.id]: {
+                                    ...prev[product.id],
+                                    customPhone: e.target.value,
+                                  },
+                                }));
+                              }}
+                              placeholder="Enter WhatsApp number"
+                              className="rounded-xl border-bree-border focus:border-bree-primary h-11 bg-white"
+                            />
+                            {!isValidReminderPhone(
+                              reminderSelection?.customPhone || "",
+                            ) &&
+                              (reminderSelection?.customPhone || "").length >
+                                0 && (
+                                <p className="mt-1 text-xs text-red-600">
+                                  Enter a valid 10-digit Indian mobile number or
+                                  91-prefixed version.
+                                </p>
+                              )}
+                          </div>
+                        )}
+
+                        <p className="mt-2 text-xs text-bree-text-secondary">
+                          Daily WhatsApp reminders will be sent to{" "}
+                          {maskPhoneNumber(
+                            reminderPhoneValue ||
+                              contactInfo.phone ||
+                              "your selected contact",
+                          )}
+                          .
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* CTA */}
               <Button
