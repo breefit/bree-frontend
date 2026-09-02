@@ -163,13 +163,14 @@ const Shop = () => {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+              <div className="flex flex-wrap justify-center gap-6 md:gap-8">
                 {filteredProducts.map((product, index) => (
-                  <ProductCard
+                  <div
                     key={product.id}
-                    product={product}
-                    index={index}
-                  />
+                    className="w-full md:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1.75rem)] max-w-[420px]"
+                  >
+                    <ProductCard product={product} index={index} />
+                  </div>
                 ))}
               </div>
             )}

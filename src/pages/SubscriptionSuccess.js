@@ -19,6 +19,7 @@ import {
   Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatReminderTime, maskWhatsAppNumber } from "@/lib/reminderDisplay";
 
 /* ─────────────────────── helpers ─────────────────────── */
 
@@ -144,6 +145,7 @@ const SubscriptionSuccess = () => {
     subscriptionStatus,
     nextBillingDate,
     subscriptionPrice,
+    reminders,
   } = state;
 
   const title = useMemo(
@@ -155,6 +157,9 @@ const SubscriptionSuccess = () => {
   );
 
   const displayPrice = subscriptionPrice || product?.price;
+  const reminderCards = Array.isArray(reminders)
+    ? reminders.filter((reminder) => reminder?.enabled !== false)
+    : [];
 
   return (
     <div className="pt-24 min-h-screen bg-bree-bg pb-20">
@@ -295,6 +300,55 @@ const SubscriptionSuccess = () => {
             </div>
           </div>
         </div>
+
+        {reminderCards.length > 0 && (
+          <div className="rounded-[28px] bg-white border border-bree-border p-6 shadow-sm">
+            <div className="flex items-center gap-2 mb-5">
+              <Bell className="w-4 h-4 text-bree-primary" />
+              <h2 className="text-base font-bold text-bree-text-primary uppercase tracking-wide">
+                WhatsApp Reminder
+              </h2>
+            </div>
+            <div className="space-y-4">
+              {reminderCards.map((reminder) => {
+                const phoneValue =
+                  reminder.reminder_phone_source === "custom"
+                    ? reminder.reminder_whatsapp_number ||
+                      reminder.custom_phone ||
+                      ""
+                    : reminder.reminder_whatsapp_number || "";
+
+                return (
+                  <div
+                    key={`${reminder.product_id}-${reminder.time}`}
+                    className="rounded-2xl border border-bree-border bg-bree-bg p-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 rounded-xl border border-bree-border bg-white overflow-hidden shrink-0 flex items-center justify-center">
+                        <img
+                          src="/images/daily-whatsapp-reminder.png"
+                          alt="Daily WhatsApp Reminder"
+                          className="w-10 h-10 object-contain"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-bree-text-primary text-base">
+                          Daily wellness reminders enabled
+                        </p>
+                        <p className="text-sm text-bree-text-secondary mt-1">
+                          Reminder time: {formatReminderTime(reminder.time)}
+                        </p>
+                        <p className="text-sm text-bree-text-secondary mt-1">
+                          WhatsApp: {maskWhatsAppNumber(phoneValue)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ── What Happens Next ── */}
         <div className="rounded-[28px] bg-white border border-bree-border p-6 shadow-sm">

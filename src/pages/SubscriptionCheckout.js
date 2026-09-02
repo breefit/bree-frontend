@@ -389,6 +389,7 @@ const SubscriptionCheckout = () => {
             nextBillingDate:
               verifyResult.next_billing_date || response.next_billing_date,
             subscriptionPrice,
+            reminders,
           },
         });
       }
