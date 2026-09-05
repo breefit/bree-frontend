@@ -91,6 +91,29 @@ const StatCard = ({
   );
 };
 
+const getResolvedProductNames = (order) => {
+  if (order.product_names) return order.product_names;
+
+  const items = Array.isArray(order.items) ? order.items : [];
+  if (items.length) {
+    const productNames = items
+      .map(
+        (item) =>
+          item.product_name ||
+          item.name ||
+          item.productName ||
+          item.title ||
+          "",
+      )
+      .filter(Boolean);
+
+    if (productNames.length) return productNames.join(", ");
+  }
+
+  if (order.product_name) return order.product_name;
+  return "Unknown product";
+};
+
 const OrderRow = ({ order, delay }) => {
   const statusColors = {
     delivered: "bg-green-100 text-green-700",
@@ -112,7 +135,7 @@ const OrderRow = ({ order, delay }) => {
         {order.customer_name}
       </td>
       <td className="py-3 px-4 text-sm text-bree-text-secondary">
-        {order.product_name || order.items?.[0]?.name || "Unknown product"}
+        {getResolvedProductNames(order)}
       </td>
       <td className="py-3 px-4 text-sm font-medium text-bree-text-primary">
         ₹{Number(order.total ?? order.amount ?? 0).toLocaleString()}
@@ -143,7 +166,12 @@ const AdminDashboard = () => {
           axios.get(`${API}/bulk-bookings/stats`, { withCredentials: true }),
         ]);
         setStats(statsRes.data);
-        setRecentOrders(ordersRes.data?.orders || []);
+        const dashboardRecentOrders = Array.isArray(
+          statsRes.data?.recent_orders,
+        )
+          ? statsRes.data.recent_orders
+          : ordersRes.data?.orders || [];
+        setRecentOrders(dashboardRecentOrders);
         setBulkStats(bulkStatsRes.data?.data);
       } catch (error) {
         console.error("❌ Error fetching dashboard data:", error);
@@ -172,7 +200,10 @@ const AdminDashboard = () => {
         axios.get(`${API}/bulk-bookings/stats`, { withCredentials: true }),
       ]);
       setStats(statsRes.data);
-      setRecentOrders(ordersRes.data?.orders || []);
+      const dashboardRecentOrders = Array.isArray(statsRes.data?.recent_orders)
+        ? statsRes.data.recent_orders
+        : ordersRes.data?.orders || [];
+      setRecentOrders(dashboardRecentOrders);
       setBulkStats(bulkStatsRes.data?.data);
     } catch (e) {
       console.warn("❌ Failed to refresh dashboard after order update", e);
