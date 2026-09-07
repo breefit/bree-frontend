@@ -162,7 +162,7 @@ The `@/` import alias (e.g. `import axios from "@/lib/api"`) resolves to `src/`,
 Authentication state and actions live in [`src/context/AuthContext.js`](src/context/AuthContext.js), exposed via `useAuth()`.
 
 - **Session check**: on mount, `checkAuth()` calls `GET /api/auth/verify` (cookie-based) to restore the session; the resolved user is kept in `user` state, and `loading` gates route rendering until this resolves.
-- **Mobile OTP login** (`/login`, `/register`): `sendOtp(mobile)` → `POST /api/auth/send-otp`, `verifyOtp(mobile, otp)` → `POST /api/auth/verify-otp`. A first-time number triggers a `completeProfile({ mobile, name })` → `POST /api/auth/complete-profile` step before the session is established.
+- **Mobile OTP login** (`/login`, `/register`): `sendOtp(mobile)` → `POST /api/auth/send-otp`, `verifyOtp(mobile, otp)` → `POST /api/auth/verify-otp`. A first-time number creates the user during OTP verification and establishes the session immediately.
 - **Google authentication**: `loginWithGoogle()` opens a Firebase `signInWithPopup`, then exchanges the Firebase ID token via `POST /api/auth/google`.
 - **Logout**: `logout()` calls `POST /api/auth/logout`, signs out of Firebase if applicable, and clears local session state.
 - **Session expiry**: the shared axios instance listens for `401`s on session-sensitive endpoints and attempts a silent refresh (`GET /api/auth/verify`); if that also fails it dispatches an `auth:expired` window event, which `AuthContext` handles by logging out and toasting "Your session has expired. Please log in again."
@@ -399,7 +399,7 @@ The frontend integrates with — but does not implement — the backend's email/
 
 All requests go through the single shared axios instance in [`src/lib/api.js`](src/lib/api.js) (base URL from `REACT_APP_BACKEND_URL`/`REACT_APP_API_URL`, `withCredentials: true`, automatic bearer-token attachment, and 401 retry/refresh handling). Endpoint paths confirmed directly from the source (not exhaustive, grouped by area):
 
-- **Authentication**: `GET /api/auth/verify`, `POST /api/auth/send-otp`, `POST /api/auth/verify-otp`, `POST /api/auth/resend-otp`, `POST /api/auth/complete-profile`, `POST /api/auth/google`, `POST /api/auth/logout`
+- **Authentication**: `GET /api/auth/verify`, `POST /api/auth/send-otp`, `POST /api/auth/verify-otp`, `POST /api/auth/resend-otp`, `POST /api/auth/google`, `POST /api/auth/logout`
 - **Profile / Addresses**: `GET/PUT /api/profile`, `PUT /api/profile/password`, `GET/POST /api/addresses`, `PUT/DELETE /api/addresses/:id`, `PUT /api/addresses/:id/default`
 - **Products**: `GET /api/products` (Shop/Home), admin `GET/POST/PUT/DELETE /api/admin/products`, `GET/POST /api/admin/products/:id/relations`
 - **Cart / Checkout**: `POST /api/orders/validate-cart`, `POST /api/payment/create-order`, `POST /api/payment/verify`

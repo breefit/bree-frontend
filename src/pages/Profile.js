@@ -68,7 +68,6 @@ function ProfileTab({ user }) {
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
-  const [contactLoading, setContactLoading] = useState(false);
   const [profileData, setProfileData] = useState(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "" });
   const [passwordForm, setPasswordForm] = useState({
@@ -112,43 +111,6 @@ function ProfileTab({ user }) {
       toast.error("Failed to update profile.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const missingEmail = !profileData?.email?.trim();
-  const missingPhone = !profileData?.phone?.trim();
-
-  const handleCompleteContact = async () => {
-    const updates = {};
-
-    if (missingEmail) {
-      const email = form.email.trim().toLowerCase();
-      if (!/^\S+@\S+\.\S+$/.test(email)) {
-        toast.error("Please enter a valid email address.");
-        return;
-      }
-      updates.email = email;
-    }
-
-    if (missingPhone) {
-      const phone = form.phone.trim();
-      if (!phone) {
-        toast.error("Please enter your phone number.");
-        return;
-      }
-      updates.phone = phone;
-    }
-
-    setContactLoading(true);
-    try {
-      const response = await axios.put("/api/profile", updates);
-      setProfileData((prev) => ({ ...prev, ...response.data }));
-      setForm((prev) => ({ ...prev, ...response.data }));
-      toast.success("Profile completed.");
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to update profile.");
-    } finally {
-      setContactLoading(false);
     }
   };
 
@@ -232,62 +194,6 @@ function ProfileTab({ user }) {
           )}
         </div>
       </div>
-
-      {(missingEmail || missingPhone) && (
-        <div className="mb-8 rounded-xl border border-bree-primary/30 bg-bree-bg p-5">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-bree-primary" />
-            <div className="flex-1">
-              <h3 className="font-outfit text-lg font-semibold text-bree-text-primary">
-                Complete Your Profile
-              </h3>
-              <p className="mt-1 text-sm text-bree-text-secondary">
-                Add the contact information missing from your account.
-              </p>
-              <div className="mt-4 space-y-4">
-                {missingEmail && (
-                  <div>
-                    <Label>Email</Label>
-                    <Input
-                      value={form.email}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, email: e.target.value }))
-                      }
-                      className="mt-1 bg-white"
-                      type="email"
-                      placeholder="you@example.com"
-                    />
-                  </div>
-                )}
-                {missingPhone && (
-                  <div>
-                    <Label>Phone</Label>
-                    <Input
-                      value={form.phone}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, phone: e.target.value }))
-                      }
-                      className="mt-1 bg-white"
-                      type="tel"
-                      placeholder="+91 XXXXX XXXXX"
-                    />
-                  </div>
-                )}
-                <Button
-                  onClick={handleCompleteContact}
-                  disabled={contactLoading}
-                  className="bg-bree-primary text-white hover:bg-bree-primary-hover"
-                >
-                  {contactLoading && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Save Contact Information
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Profile edit form ── */}
       {showProfileForm ? (
