@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
 } from "react";
 import axios, { getApiErrorMessage } from "@/lib/api";
 import {
@@ -34,6 +35,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [authenticating, setAuthenticating] = useState(false);
   const AUTH_EVENT_KEY = "bree-auth-event";
+  const authCheckPromiseRef = useRef(null);
+  const authExpiryHandledRef = useRef(false);
 
   const broadcastAuthEvent = (action) => {
     window.dispatchEvent(new Event("auth:updated"));
@@ -44,21 +47,32 @@ export const AuthProvider = ({ children }) => {
   };
 
   const checkAuth = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Always verify via cookie — don't gate on localStorage
-      const response = await axios.get("/api/auth/verify");
-      setUser(response.data);
-      if (response.data?.accessToken) {
-        localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
-      }
-    } catch {
-      // Verify failed — user is not logged in
-      setUser(null);
-      localStorage.removeItem(ACCESS_TOKEN_KEY);
-    } finally {
-      setLoading(false);
+    if (authCheckPromiseRef.current) {
+      return authCheckPromiseRef.current;
     }
+
+    setLoading(true);
+    authCheckPromiseRef.current = (async () => {
+      try {
+        // Always verify via cookie — don't gate on localStorage
+        const response = await axios.get("/api/auth/verify");
+        setUser(response.data);
+        if (response.data?.accessToken) {
+          localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
+        }
+        return response.data;
+      } catch {
+        // Verify failed — user is not logged in
+        setUser(null);
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
+        return null;
+      } finally {
+        setLoading(false);
+        authCheckPromiseRef.current = null;
+      }
+    })();
+
+    return authCheckPromiseRef.current;
   }, []);
 
   useEffect(() => {
@@ -70,6 +84,8 @@ export const AuthProvider = ({ children }) => {
   // ensuring cookies + refresh tokens are properly revoked on the backend.
   useEffect(() => {
     const handleAuthExpired = async () => {
+      if (authExpiryHandledRef.current) return;
+      authExpiryHandledRef.current = true;
       setLoading(true);
       try {
         await axios.post("/api/auth/logout", {});
@@ -84,6 +100,7 @@ export const AuthProvider = ({ children }) => {
       broadcastAuthEvent("logout");
       setLoading(false);
       toast.error("Your session has expired. Please log in again.");
+      authExpiryHandledRef.current = false;
     };
 
     const handleStorageEvent = (event) => {

@@ -89,6 +89,11 @@ axios.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    if (error.response.status === 429) {
+      error.message = "Too many attempts. Please wait a moment and try again.";
+      return Promise.reject(error);
+    }
+
     if (error.response.status === 401) {
       const requestPath = getRequestPath(error.config?.url);
 
@@ -130,6 +135,9 @@ axios.interceptors.response.use(
 export const getApiErrorMessage = (error) => {
   if (!error) return "Something went wrong. Please try again.";
   if (typeof error === "string") return error;
+  if (error.response?.status === 429) {
+    return "Too many attempts. Please wait a moment and try again.";
+  }
   if (error.response?.data?.message) return error.response.data.message;
   if (error.message) return error.message;
   return "An unexpected error occurred. Please refresh and try again.";
