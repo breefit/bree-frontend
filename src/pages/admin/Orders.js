@@ -77,10 +77,7 @@ const DELHIVERY_SYNC_MESSAGE =
 // "Ship with Delhivery" happened to match).
 const hasAwbShipment = (order) =>
   Boolean(
-    order?.delhivery_awb ||
-      order?.awb_number ||
-      order?.awbNumber ||
-      order?.awb,
+    order?.delhivery_awb || order?.awb_number || order?.awbNumber || order?.awb,
   );
 // ===== End Added =====
 
@@ -838,7 +835,10 @@ const OrderModal = ({
   // return_deadline = delivered_at + 48 hours.
   const RETURN_WINDOW_HOURS = 48;
   const returnDeadline = order.delivered_at
-    ? new Date(new Date(order.delivered_at).getTime() + RETURN_WINDOW_HOURS * 60 * 60 * 1000)
+    ? new Date(
+        new Date(order.delivered_at).getTime() +
+          RETURN_WINDOW_HOURS * 60 * 60 * 1000,
+      )
     : null;
   const isReturnWindowOpen =
     orderStatus === "delivered" &&
@@ -856,7 +856,8 @@ const OrderModal = ({
   // still within the window. Previously gated on a return_status value
   // ("pending_verification") the backend never produces, so this was
   // unreachable for every order.
-  const canStartReturn = showReturnSection && !returnStatus && isReturnWindowOpen;
+  const canStartReturn =
+    showReturnSection && !returnStatus && isReturnWindowOpen;
 
   // Refund amount / visibility now keyed off the real refund_status column
   // (never merged into return_status) — visible from the point a refund
@@ -1780,7 +1781,9 @@ const OrderModal = ({
                             {
                               key: "refund_approved",
                               label: "Refund Approved",
-                              done: Boolean(refundStatus) && refundStatus !== "rejected",
+                              done:
+                                Boolean(refundStatus) &&
+                                refundStatus !== "rejected",
                             },
                             {
                               key: "refund_completed",
@@ -1866,13 +1869,17 @@ const OrderModal = ({
                           <>
                             <Button
                               variant="outline"
-                              onClick={() => setReasonModal("reject_inspection")}
+                              onClick={() =>
+                                setReasonModal("reject_inspection")
+                              }
                               className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
                             >
                               Reject Quality Check
                             </Button>
                             <Button
-                              onClick={() => setConfirmModal("approve_inspection")}
+                              onClick={() =>
+                                setConfirmModal("approve_inspection")
+                              }
                               className="bg-emerald-600 hover:bg-emerald-700 text-white"
                             >
                               Approve Quality Check
@@ -2469,9 +2476,14 @@ const Orders = () => {
         await fetchOrders(new AbortController().signal);
         toast.success("Pickup scheduled successfully");
       } catch (err) {
+        const responseData = err?.response?.data;
+        const delhiveryBody = responseData?.delhiveryError;
         const backendMessage =
-          err?.response?.data?.message ||
-          err?.response?.data?.error ||
+          delhiveryBody?.message ||
+          delhiveryBody?.rmk ||
+          delhiveryBody?.error ||
+          responseData?.message ||
+          responseData?.error ||
           "Failed to schedule pickup";
         toast.error(backendMessage);
       }
@@ -2595,7 +2607,9 @@ const Orders = () => {
           AUTH(),
         );
         await refetchOrderAndList(orderId);
-        toast.success(data?.message || "Reverse pickup scheduled successfully.");
+        toast.success(
+          data?.message || "Reverse pickup scheduled successfully.",
+        );
       } catch (err) {
         const backendMessage =
           err?.response?.data?.message ||
