@@ -79,6 +79,13 @@ const hasAwbShipment = (order) =>
   Boolean(
     order?.delhivery_awb || order?.awb_number || order?.awbNumber || order?.awb,
   );
+
+const getPickupRequestId = (order) =>
+  order?.pickup_request_id ||
+  order?.pickupRequestId ||
+  order?.pickup?.pickup_request_id ||
+  order?.pickup?.pickupRequestId ||
+  null;
 // ===== End Added =====
 
 const DATE_RANGES = [
@@ -723,8 +730,7 @@ const OrderModal = ({
         : "Pending";
 
   // ===== Added: Schedule Pickup =====
-  const pickupRequestId =
-    order.pickup_request_id || order.pickupRequestId || null;
+  const pickupRequestId = getPickupRequestId(order);
   const showSchedulePickupButton =
     orderStatus === "shipped" && !pickupRequestId;
   // ===== End Added =====
@@ -1344,10 +1350,15 @@ const OrderModal = ({
                       </Button>
                     ) : (
                       pickupRequestId && (
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-teal-100 text-teal-700 border border-teal-200">
-                          <PackageCheck className="w-3.5 h-3.5" />
-                          Pickup Scheduled
-                        </span>
+                        <div className="inline-flex flex-col items-start gap-0.5 text-xs font-semibold px-3 py-2 rounded-lg bg-teal-100 text-teal-700 border border-teal-200">
+                          <span className="inline-flex items-center gap-1.5">
+                            <PackageCheck className="w-3.5 h-3.5" />
+                            Pickup Scheduled
+                          </span>
+                          <span className="font-normal">
+                            Pickup Request ID: {pickupRequestId}
+                          </span>
+                        </div>
                       )
                     )}
                     {/* ===== End Added ===== */}
@@ -2260,6 +2271,27 @@ const Orders = () => {
     return () => controller.abort();
   }, [fetchOrders]);
 
+  const openOrder = useCallback(async (order) => {
+    try {
+      const res = await axios.get(`${API}/orders/${order.id}`, AUTH());
+      const freshOrder = res.data?.order || res.data;
+      if (!freshOrder) {
+        setSelected(order);
+        return;
+      }
+      setOrders((prevOrders) =>
+        prevOrders.map((current) =>
+          current.id === order.id ? { ...current, ...freshOrder } : current,
+        ),
+      );
+      setSelected((current) =>
+        current?.id === order.id ? { ...current, ...freshOrder } : freshOrder,
+      );
+    } catch {
+      setSelected(order);
+    }
+  }, []);
+
   const handleOrderSync = useCallback((updated) => {
     setOrders((prev) =>
       prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)),
@@ -2473,12 +2505,28 @@ const Orders = () => {
             ? { ...prevSel, ...mergedOrder }
             : prevSel,
         );
+        const detailRes = await axios.get(`${API}/orders/${orderId}`, AUTH());
+        const freshOrder = detailRes.data?.order || detailRes.data;
+        if (freshOrder) {
+          setOrders((prevOrders) =>
+            prevOrders.map((order) =>
+              order.id === orderId ? { ...order, ...freshOrder } : order,
+            ),
+          );
+          setSelected((prevSel) =>
+            prevSel && prevSel.id === orderId
+              ? { ...prevSel, ...freshOrder }
+              : prevSel,
+          );
+        }
         await fetchOrders(new AbortController().signal);
-        toast.success("Pickup scheduled successfully");
+        toast.success(res?.data?.message || "Pickup scheduled successfully");
       } catch (err) {
         const responseData = err?.response?.data;
         const delhiveryBody = responseData?.delhiveryError;
         const backendMessage =
+          delhiveryBody?.data?.message ||
+          delhiveryBody?.error?.message ||
           delhiveryBody?.message ||
           delhiveryBody?.rmk ||
           delhiveryBody?.error ||
@@ -3153,7 +3201,7 @@ const Orders = () => {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => setSelected(order)}
+                          onClick={() => openOrder(order)}
                           className="w-8 h-8 rounded-lg hover:bg-bree-bg"
                         >
                           <Eye className="w-4 h-4 text-bree-text-secondary" />

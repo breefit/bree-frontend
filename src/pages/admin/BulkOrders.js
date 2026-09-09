@@ -221,6 +221,38 @@ const displayOrNA = (value) =>
     ? "Not Available"
     : value;
 
+const getPaymentMethod = (booking) =>
+  booking?.payment_method ||
+  booking?.paymentMethod ||
+  booking?.payment?.payment_method ||
+  booking?.payment?.method ||
+  (booking?.payment_status === "paid" ||
+  booking?.razorpay_payment_id ||
+  booking?.razorpay_order_id
+    ? "Razorpay"
+    : null);
+
+const getPaymentTransactionId = (booking) =>
+  booking?.transaction_id ||
+  booking?.transactionId ||
+  booking?.razorpay_payment_id ||
+  booking?.razorpayPaymentId ||
+  booking?.payment?.transaction_id ||
+  booking?.payment?.transactionId ||
+  booking?.payment?.razorpay_payment_id ||
+  null;
+
+const getPaymentDate = (booking) =>
+  booking?.payment_date ||
+  booking?.paymentDate ||
+  booking?.paid_at ||
+  booking?.paidAt ||
+  booking?.payment?.payment_date ||
+  booking?.payment?.paymentDate ||
+  booking?.payment?.paid_at ||
+  booking?.payment?.paidAt ||
+  null;
+
 // Enquiry Address: new bookings store a single free-text field
 // (enquiry_address). Older bookings, created before this migration, only
 // have the legacy structured columns (address_line1/2, city, state,
@@ -1755,7 +1787,7 @@ const BulkOrders = () => {
                         Payment Method
                       </p>
                       <p className="text-sm font-medium text-bree-text-primary">
-                        {editData.payment_method || "Not Available"}
+                        {displayOrNA(getPaymentMethod(editData))}
                       </p>
                     </div>
                     <div>
@@ -1763,7 +1795,7 @@ const BulkOrders = () => {
                         Transaction ID
                       </p>
                       <p className="text-sm font-medium text-bree-text-primary break-all">
-                        {editData.transaction_id || "Not Available"}
+                        {displayOrNA(getPaymentTransactionId(editData))}
                       </p>
                     </div>
                     <div>
@@ -1771,8 +1803,7 @@ const BulkOrders = () => {
                         Payment Date
                       </p>
                       <p className="text-sm font-medium text-bree-text-primary">
-                        {formatDateTime(editData.payment_date) ||
-                          "Not Available"}
+                        {displayOrNA(formatDateTime(getPaymentDate(editData)))}
                       </p>
                     </div>
                   </div>
