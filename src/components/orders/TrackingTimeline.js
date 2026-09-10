@@ -16,21 +16,15 @@ const formatTimestampSafe = (timestamp) => {
   return !isNaN(parsed) ? parsed.toLocaleString("en-IN") : "-";
 };
 
-// Canonical ordering for normal Delhivery shipment stages. Terminal
-// statuses are handled separately so they do not participate in the same
-// ordering logic.
+// Customer-facing milestones only. Raw Delhivery events are intentionally
+// excluded from this component.
 const NORMAL_STATUS_ORDER = [
-  "pending",
-  "manifested",
-  "pickup pending",
-  "pickup scheduled",
-  "pickup complete",
-  "not picked",
-  "bagged",
-  "dispatched",
-  "in transit",
-  "reached destination hub",
-  "out for delivery",
+  "pending_payment",
+  "paid",
+  "processing",
+  "ready_to_ship",
+  "shipped",
+  "out_for_delivery",
   "delivered",
 ];
 
@@ -44,7 +38,10 @@ const TERMINAL_STATUSES = [
   "undelivered",
 ];
 
-const getStatusIndex = (status) => NORMAL_STATUS_ORDER.indexOf(status);
+const getStatusIndex = (status) =>
+  NORMAL_STATUS_ORDER.indexOf(
+    status === "pending" ? "pending_payment" : status,
+  );
 // ===== End Modified =====
 
 const TrackingTimeline = ({

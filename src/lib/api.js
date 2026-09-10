@@ -84,8 +84,16 @@ axios.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (!error.response) {
-      error.message =
-        "Unable to reach the backend. Check your network or backend server.";
+      const isTimeout =
+        error.code === "ECONNABORTED" || error.code === "ETIMEDOUT";
+      console.error("[API] Request did not receive an HTTP response", {
+        method: error.config?.method?.toUpperCase(),
+        url: error.config?.url,
+        code: error.code || "NO_RESPONSE",
+      });
+      error.message = isTimeout
+        ? "The request timed out. Please check your connection and try again."
+        : "Unable to reach the backend. Check your network or backend server.";
       return Promise.reject(error);
     }
 

@@ -39,11 +39,21 @@ const getShippingDisplay = (order) => {
     : "Shipping information unavailable";
 };
 
-const formatStatusLabel = (status) => {
-  if (!status) return "";
-  return String(status)
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+const CUSTOMER_TIMELINE = [
+  { status: "pending_payment", label: "Order Placed" },
+  { status: "paid", label: "Paid" },
+  { status: "processing", label: "Processing" },
+  { status: "ready_to_ship", label: "Ready to Ship" },
+  { status: "shipped", label: "Shipped" },
+  { status: "out_for_delivery", label: "Out for Delivery" },
+  { status: "delivered", label: "Delivered" },
+];
+
+const normalizeCustomerStatus = (status) => {
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "pending" ? "pending_payment" : normalized;
 };
 
 const API = "/api";
@@ -153,103 +163,48 @@ const OrderTracking = () => {
   const hasAwb = Boolean(awbNumber && awbNumber !== "-");
 
   const steps = useMemo(() => {
-    const scanHistory = Array.isArray(liveTracking?.scanHistory)
-      ? liveTracking.scanHistory
-      : [];
+    const timestamps = new Map();
 
-    if (scanHistory.length) {
-      return scanHistory.map((item, index) => {
-        const status =
-          item?.status ||
-          item?.scanStatus ||
-          item?.scan_status ||
-          item?.Status ||
-          item?.ScanStatus ||
-          item?.trackingStatus ||
-          item?.TrackingStatus ||
-          "";
+    tracking.forEach((item) => {
+      const status = normalizeCustomerStatus(item.new_status || item.status);
+      if (
+        CUSTOMER_TIMELINE.some((step) => step.status === status) &&
+        !timestamps.has(status)
+      ) {
+        timestamps.set(status, item.created_at);
+      }
+    });
 
-        return {
-          id: item?.id || `${index}-${status || "scan"}`,
-          key: item?.id || `${index}-${status || "scan"}`,
-          status,
-          label: formatStatusLabel(status),
-          timestamp:
-            item?.timestamp ||
-            item?.time ||
-            item?.date ||
-            item?.datetime ||
-            item?.updatedAt ||
-            item?.createdAt ||
-            null,
-          notes:
-            item?.remarks ||
-            item?.remark ||
-            item?.instructions ||
-            item?.Instruction ||
-            item?.notes ||
-            null,
-          location:
-            item?.location ||
-            item?.Location ||
-            item?.statusLocation ||
-            item?.status_location ||
-            null,
-        };
-      });
+    if (!timestamps.has("pending_payment") && order?.created_at) {
+      timestamps.set("pending_payment", order.created_at);
     }
 
-    if (liveTracking?.trackingStatus || liveTracking?.status) {
-      const currentStatus =
-        liveTracking?.trackingStatus || liveTracking?.status || "";
-      return [
-        {
-          id: `current-${currentStatus}`,
-          key: `current-${currentStatus}`,
-          status: currentStatus,
-          label: formatStatusLabel(currentStatus),
-          timestamp: liveTracking?.lastUpdate || null,
-          notes: liveTracking?.remarks || null,
-          location: liveTracking?.currentLocation || null,
-        },
-      ];
-    }
-
-    // Build steps from order status history
-    const historySteps = tracking.map((item, index) => ({
-      id: item.id || `${item.order_id}-${item.created_at}`,
-      key: item.id || `${item.order_id}-${item.created_at}`,
-      status: item.new_status || item.status,
-      label: formatStatusLabel(item.new_status || item.status),
-      timestamp: item.created_at,
-      notes: item.notes,
-      state: index === tracking.length - 1 ? "active" : "completed",
+    return CUSTOMER_TIMELINE.map((step) => ({
+      id: `${step.status}-${order?.id}`,
+      key: `${step.status}-${order?.id}`,
+      status: step.status,
+      label: step.label,
+      timestamp: timestamps.get(step.status) || null,
     }));
+  }, [tracking, order]);
 
-    // If no "pending" status in history, prepend it with order.created_at
-    const hasPending = historySteps.some(
-      (step) =>
-        String(step.status).toLowerCase() === "pending" ||
-        String(step.label).toLowerCase() === "pending",
-    );
-
-    if (!hasPending && order?.created_at) {
-      return [
-        {
-          id: `pending-${order.id}`,
-          key: `pending-${order.id}`,
-          status: "pending",
-          label: "Pending",
-          timestamp: order.created_at,
-          notes: null,
-          state: "completed",
-        },
-        ...historySteps,
-      ];
+  const customerCurrentStatus = useMemo(() => {
+    const currentStatus = normalizeCustomerStatus(order?.order_status);
+    if (CUSTOMER_TIMELINE.some((step) => step.status === currentStatus)) {
+      return currentStatus;
     }
 
-    return historySteps;
-  }, [liveTracking, tracking, order]);
+    for (let index = tracking.length - 1; index >= 0; index -= 1) {
+      const historyStatus = normalizeCustomerStatus(
+        tracking[index].new_status || tracking[index].status,
+      );
+      if (CUSTOMER_TIMELINE.some((step) => step.status === historyStatus)) {
+        return historyStatus;
+      }
+    }
+
+    return "pending_payment";
+  }, [order, tracking]);
 
   const subtotal =
     order?.subtotal != null
@@ -436,12 +391,7 @@ const OrderTracking = () => {
               ) : (
                 <TrackingTimeline
                   steps={steps}
-                  currentStatus={
-                    liveTracking?.trackingStatus ||
-                    liveTracking?.status ||
-                    order.status ||
-                    order.order_status
-                  }
+                  currentStatus={customerCurrentStatus}
                 />
               )}
             </div>
@@ -478,11 +428,11 @@ const OrderTracking = () => {
 
                 {!order?.delivered_at ? (
                   <p className="text-sm text-bree-text-secondary leading-6">
-                    If you received a damaged, incorrect, or defective
-                    product, please contact <strong>BREE Support</strong>{" "}
-                    within <strong>48 hours of delivery</strong>. Our support
-                    team will verify your request and, if approved, arrange a
-                    return pickup.
+                    If you received a damaged, incorrect, or defective product,
+                    please contact <strong>BREE Support</strong> within{" "}
+                    <strong>48 hours of delivery</strong>. Our support team will
+                    verify your request and, if approved, arrange a return
+                    pickup.
                   </p>
                 ) : isReturnWindowOpen ? (
                   <p className="text-sm text-bree-text-secondary leading-6">
@@ -491,18 +441,17 @@ const OrderTracking = () => {
                     <span className="font-medium text-emerald-700">
                       Your return window is currently open.
                     </span>{" "}
-                    If you received a damaged, incorrect, or defective
-                    product, please contact <strong>BREE Support</strong> — our
-                    team will verify your request and, if approved, arrange a
-                    return pickup.
+                    If you received a damaged, incorrect, or defective product,
+                    please contact <strong>BREE Support</strong> — our team will
+                    verify your request and, if approved, arrange a return
+                    pickup.
                   </p>
                 ) : (
                   <p className="text-sm text-bree-text-secondary leading-6">
                     <span className="font-medium text-red-600">
                       Return window expired.
                     </span>{" "}
-                    Return requests must be raised within 48 hours of
-                    delivery.
+                    Return requests must be raised within 48 hours of delivery.
                   </p>
                 )}
 
@@ -541,17 +490,17 @@ const OrderTracking = () => {
 
                     <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 p-3">
                       <p className="text-xs text-blue-700">
-                        Please keep your Order ID and photos/videos ready
-                        while contacting support. This helps us verify your
-                        request faster.
+                        Please keep your Order ID and photos/videos ready while
+                        contacting support. This helps us verify your request
+                        faster.
                       </p>
                     </div>
 
                     <div className="mt-5 rounded-xl bg-amber-50 border border-amber-200 p-4">
                       <p className="text-xs text-amber-700">
-                        Returns are accepted only after verification by the
-                        BREE Support team. If approved, BREE will arrange the
-                        return pickup.
+                        Returns are accepted only after verification by the BREE
+                        Support team. If approved, BREE will arrange the return
+                        pickup.
                       </p>
                     </div>
                   </>

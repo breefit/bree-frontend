@@ -24,6 +24,16 @@ import { toast } from "sonner";
 const AuthContext = createContext();
 const ACCESS_TOKEN_KEY = "bree_access_token";
 
+const normalizeOtpMobile = (mobile) => {
+  const digits = String(mobile || "")
+    .trim()
+    .replace(/\D/g, "");
+
+  return digits.startsWith("91") && digits.length === 12
+    ? digits.slice(2)
+    : digits;
+};
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) throw new Error("useAuth must be used within an AuthProvider");
@@ -189,8 +199,9 @@ export const AuthProvider = ({ children }) => {
 
   const sendOtp = async (mobile) => {
     try {
+      const normalizedMobile = normalizeOtpMobile(mobile);
       const response = await axios.post("/api/auth/send-otp", {
-        mobile,
+        mobile: normalizedMobile,
       });
       toast.success("OTP sent successfully to your WhatsApp.");
       return response.data;
@@ -202,8 +213,9 @@ export const AuthProvider = ({ children }) => {
 
   const verifyOtp = async (mobile, otp) => {
     try {
+      const normalizedMobile = normalizeOtpMobile(mobile);
       const response = await axios.post("/api/auth/verify-otp", {
-        mobile,
+        mobile: normalizedMobile,
         otp,
       });
 
@@ -222,8 +234,9 @@ export const AuthProvider = ({ children }) => {
 
   const resendOtp = async (mobile) => {
     try {
+      const normalizedMobile = normalizeOtpMobile(mobile);
       const response = await axios.post("/api/auth/resend-otp", {
-        mobile,
+        mobile: normalizedMobile,
       });
       toast.success("OTP resent successfully.");
       return response.data;
