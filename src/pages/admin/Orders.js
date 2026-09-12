@@ -709,6 +709,17 @@ const OrderModal = ({
 
   const orderStatus = normalizeStatus(order.order_status || order.status);
   const items = Array.isArray(order.items) ? order.items : [];
+  const reminders = Array.isArray(order.reminders)
+    ? order.reminders.filter(
+        (reminder) =>
+          reminder?.reminder_enabled === 1 ||
+          reminder?.reminder_enabled === true,
+      )
+    : [];
+  const reminderTotal = reminders.reduce(
+    (sum, reminder) => sum + Number(reminder.reminder_price_paid || 0),
+    0,
+  );
   // FIX (Delhivery shipment audit): `awb_number` is the real persisted/API
   // field name — see hasAwbShipment() above for the same fix.
   const shipmentAwb =
@@ -1199,6 +1210,19 @@ const OrderModal = ({
                   })}
 
                   {/* Order total */}
+                  {reminders.length > 0 && (
+                    <div className="pt-2 flex items-center justify-between border-t border-bree-border">
+                      <p className="text-sm text-bree-text-secondary">
+                        WhatsApp Reminder
+                      </p>
+                      <p className="text-sm font-medium text-bree-text-primary">
+                        {reminderTotal > 0
+                          ? `₹${reminderTotal.toLocaleString()}`
+                          : "Added"}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="pt-2 flex items-center justify-between border-t border-bree-border">
                     <p className="text-sm font-semibold text-bree-text-primary">
                       Order Total

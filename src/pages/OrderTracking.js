@@ -225,6 +225,17 @@ const OrderTracking = () => {
         : subtotal;
 
   const shippingDisplay = getShippingDisplay(order);
+  const reminders = Array.isArray(order?.reminders)
+    ? order.reminders.filter(
+        (reminder) =>
+          reminder?.reminder_enabled === 1 ||
+          reminder?.reminder_enabled === true,
+      )
+    : [];
+  const reminderTotal = reminders.reduce(
+    (sum, reminder) => sum + Number(reminder.reminder_price_paid || 0),
+    0,
+  );
   const hasEstimatedDelivery = Boolean(
     order?.estimated_delivery?.toString().trim(),
   );
@@ -576,6 +587,17 @@ const OrderTracking = () => {
                   <span>Subtotal</span>
                   <span>₹{Number(subtotal).toLocaleString()}</span>
                 </div>
+
+                {reminders.length > 0 && (
+                  <div className="flex justify-between mt-2">
+                    <span>WhatsApp Reminder</span>
+                    <span>
+                      {reminderTotal > 0
+                        ? `₹${reminderTotal.toLocaleString()}`
+                        : "Added"}
+                    </span>
+                  </div>
+                )}
 
                 <div className="flex justify-between mt-2">
                   <span>Shipping</span>
