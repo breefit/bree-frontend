@@ -7,6 +7,7 @@ const read = (p) => fs.readFileSync(path.join(__dirname, p), "utf8");
 const apiSource = read("./api.js");
 const authSource = read("../context/AuthContext.js");
 const trackingSource = read("../pages/OrderTracking.js");
+const appSource = read("../App.js");
 const routesSource = read(
   "../../../bree-backend/src/routes/index.js",
 );
@@ -84,6 +85,21 @@ describe("public tracking request stability", () => {
   test("429 responses still map to a terminal user-facing message", () => {
     expect(getApiErrorMessage({ response: { status: 429, data: {} } })).toBe(
       "Too many attempts. Please wait a moment and try again.",
+    );
+  });
+
+  test("tracking page renders without waiting on the global auth check", () => {
+    // AppRouter must not gate the public tracking route behind `loading`
+    // (the /api/auth/verify round-trip) — otherwise a slow/blocked verify
+    // call (WhatsApp in-app browser, weak mobile network) stalls the page
+    // for logged-out visitors who never needed auth in the first place.
+    expect(appSource).toContain("isPublicTrackingPath");
+    expect(appSource).toMatch(
+      /if \(loading && !isPublicTrackingPath\(location\.pathname\)\)/,
+    );
+    // The route itself must stay outside ProtectedRoute.
+    expect(appSource).toMatch(
+      /<Route path="\/order\/:id\/tracking" element=\{<OrderTracking \/>\} \/>/,
     );
   });
 });

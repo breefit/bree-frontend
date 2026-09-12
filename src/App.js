@@ -72,11 +72,20 @@ function PageLoader() {
   );
 }
 
+// The public order-tracking page must render without waiting on
+// /api/auth/verify — it works for logged-out visitors (WhatsApp/email
+// links, incognito, in-app browsers) where that request can be slow or
+// blocked entirely. Every other route keeps waiting on `loading` below.
+const isPublicTrackingPath = (pathname) =>
+  /^\/order\/[^/]+\/tracking\/?$/.test(pathname);
+
 function AppRouter() {
   const location = useLocation();
   const { loading } = useAuth();
 
-  if (loading) return <PageLoader />;
+  if (loading && !isPublicTrackingPath(location.pathname)) {
+    return <PageLoader />;
+  }
 
   // Admin routes — rendered without public Header/Footer
   if (location.pathname.startsWith("/admin")) {
