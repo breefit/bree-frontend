@@ -11,6 +11,9 @@ const appSource = read("../App.js");
 const routesSource = read(
   "../../../bree-backend/src/routes/index.js",
 );
+const orderControllerSource = read(
+  "../../../bree-backend/src/controllers/orderController.js",
+);
 
 describe("public tracking request stability", () => {
   test("tracking page uses the public optionalAuth endpoints", () => {
@@ -100,6 +103,75 @@ describe("public tracking request stability", () => {
     // The route itself must stay outside ProtectedRoute.
     expect(appSource).toMatch(
       /<Route path="\/order\/:id\/tracking" element=\{<OrderTracking \/>\} \/>/,
+    );
+  });
+
+  test("the public tracking query is not restricted to the order's owner", () => {
+    // FIX (root cause): optionalAuth alone doesn't make tracking public —
+    // for a logged-out visitor (or the account owner on a device where
+    // they aren't signed in), req.user is undefined, so the query's old
+    // `WHERE o.id = ? AND (o.user_id = ? OR o.user_id IS NULL)` only ever
+    // matched TRUE guest-checkout orders. Any order placed while signed in
+    // (almost every real order) has a real user_id, so that visitor got
+    // zero rows back and a false "Order not found" — the exact symptom
+    // reported. The order id is a UUID (validateOrderId/isValidUUID) —
+    // unguessable, same access model as a courier's public track-by-AWB
+    // page — so it alone is the correct credential here.
+    const getOrderTrackingSource = orderControllerSource.slice(
+      orderControllerSource.indexOf("export const getOrderTracking"),
+      orderControllerSource.indexOf("export const getOrderLiveTracking"),
+    );
+    expect(getOrderTrackingSource).not.toMatch(
+      /user_id = \?|o\.user_id = \?/,
+    );
+    expect(getOrderTrackingSource).toMatch(/WHERE o\.id = \?[`\s]/);
+
+    const getOrderLiveTrackingSource = orderControllerSource.slice(
+      orderControllerSource.indexOf("export const getOrderLiveTracking"),
+    );
+    expect(getOrderLiveTrackingSource).not.toMatch(/user_id = \?/);
+    expect(getOrderLiveTrackingSource).toMatch(/WHERE id = \?[`\s]/);
+  });
+
+  test("the now-public tracking endpoints never select credentials/secrets — an unguessable order id is not a pass to internal data", () => {
+    const getOrderTrackingSource = orderControllerSource.slice(
+      orderControllerSource.indexOf("export const getOrderTracking"),
+      orderControllerSource.indexOf("export const getOrderLiveTracking"),
+    );
+    const getOrderLiveTrackingSource = orderControllerSource.slice(
+      orderControllerSource.indexOf("export const getOrderLiveTracking"),
+    );
+    for (const source of [getOrderTrackingSource, getOrderLiveTrackingSource]) {
+      expect(source).not.toMatch(/password/i);
+      expect(source).not.toMatch(/\botp\b/i);
+      expect(source).not.toMatch(/razorpay_key|api_key|api_secret/i);
+      expect(source).not.toMatch(/\btoken\b/i);
+      expect(source).not.toMatch(/is_admin|admin_/i);
+    }
+  });
+
+  test("the authenticated order-detail endpoint (getOrder) keeps its ownership check — only the public tracking endpoints changed", () => {
+    // Scope guard: this must stay protected so /profile-style order detail
+    // views (and any other caller of GET /api/orders/:id) never leak one
+    // customer's order to another logged-in customer just by guessing/
+    // reusing an id. Only getOrderTracking / getOrderLiveTracking became
+    // ownership-free.
+    const getOrderSource = orderControllerSource.slice(
+      orderControllerSource.indexOf("export const getOrder = async"),
+      orderControllerSource.indexOf("export const getOrderHistory"),
+    );
+    expect(getOrderSource).toMatch(
+      /WHERE id = \? AND \(user_id = \? OR user_id IS NULL\)/,
+    );
+  });
+
+  test("order history, my-orders, and checkout-success stay behind full auth — not optionalAuth", () => {
+    expect(routesSource).toContain(
+      'orderRouter.get("/:id/history", auth, getOrderHistory)',
+    );
+    expect(routesSource).toContain('orderRouter.get("/", auth, getMyOrders)');
+    expect(routesSource).toContain(
+      'orderRouter.get("/:id/success", auth, getOrderSuccess)',
     );
   });
 });
