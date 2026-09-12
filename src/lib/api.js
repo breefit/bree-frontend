@@ -78,7 +78,17 @@ const triggerRefresh = () => {
   return refreshPromise;
 };
 
-const logoutPaths = ["/api/profile", "/api/addresses", "/api/orders"];
+// FIX (tracking 429 root cause): these are the paths whose 401s are allowed
+// to trigger the refresh + `auth:expired` flow. It MUST stay a narrow allow-
+// list of genuinely session-scoped data APIs. It previously also matched
+// `/api/orders/*`, which meant the PUBLIC tracking page's first request
+// (GET /api/orders/:id/tracking, fired with no session from an emailed link)
+// was treated as "session expired": triggerRefresh() → GET /api/auth/verify →
+// 401 → auth:expired → logout POST → AuthContext setLoading(true) unmounted
+// the page → refetch on remount → loop. Orders 401s now resolve locally:
+// getOrderSuccess fetchOrderSuccess callers handle their own unauthenticated
+// state, and the tracking page is intentionally public.
+const logoutPaths = ["/api/profile", "/api/addresses"];
 
 axios.interceptors.response.use(
   (response) => response,
@@ -108,11 +118,19 @@ axios.interceptors.response.use(
       // Don't fire auth:expired for the verify endpoint itself
       const isVerifyCall = requestPath === "/api/auth/verify";
 
+      // FIX (auth 429 root cause): a 401 from /api/auth/verify simply means
+      // "no valid session" — the expected answer for every logged-out
+      // visitor. checkAuth() already handles it by setting user=null; it
+      // must never be re-dispatched into the expiry flow (logout POST +
+      // toast + loading flip), and must never be retried here.
+      if (isVerifyCall) {
+        return Promise.reject(error);
+      }
+
       // Don't retry if this request is already a retry
       const isRetry = error.config?._retry;
 
       if (
-        !isVerifyCall &&
         !isRetry &&
         logoutPaths.some((path) => requestPath.startsWith(path))
       ) {

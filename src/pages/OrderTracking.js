@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import axios from "@/lib/api";
@@ -58,6 +58,33 @@ const normalizeCustomerStatus = (status) => {
 
 const API = "/api";
 
+// Live-tracking poll interval. The poll reads a DB snapshot (kept fresh by
+// the Delhivery tracking cron), NOT the Delhivery API directly, so this is
+// cheap and safe even for logged-out visitors. Deliberately aligned with the
+// backend cron cadence (*/30 * * * *) — polling Delhivery-synced data faster
+// than it can change is pure waste.
+const LIVE_TRACKING_POLL_MS = 30000;
+
+// Terminal Delhivery/order statuses after which the parcel cannot move and
+// the poll timer is stopped entirely.
+const TERMINAL_TRACKING_STATUSES = [
+  "delivered",
+  "cancelled",
+  "returned",
+  "rto",
+  "damaged",
+  "lost",
+  "undelivered",
+];
+
+const normalizeStatusKey = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const isTerminalStatus = (value) =>
+  TERMINAL_TRACKING_STATUSES.includes(normalizeStatusKey(value));
+
 const OrderTracking = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -72,13 +99,38 @@ const OrderTracking = () => {
   const [refreshingTracking, setRefreshingTracking] = useState(false);
   const [trackingError, setTrackingError] = useState("");
 
-  const fetchTrackingData = useCallback(
-    async (awb, { showLoading = true } = {}) => {
-      if (!awb) {
+  // FIX (tracking 429 root cause): in-flight request guards. The order
+  // request is deduped (a socket update arriving while the initial fetch is
+  // pending must not start a second identical request) and the live-tracking
+  // poll is skipped while the previous poll is still pending (slow networks
+  // previously stacked requests unboundedly). Guards are refs, not state, so
+  // setting them never re-renders and never re-triggers effects.
+  const inFlightOrderFetchRef = useRef(null);
+  const inFlightLiveTrackingRef = useRef(null);
+  const orderRequestTokenRef = useRef(0);
+  const liveTrackingRequestTokenRef = useRef(0);
+
+  // Mirror of `liveTracking` state for use inside stable callbacks. Declared
+  // here (not next to the poll effect) so `fetchLiveTracking` can stay
+  // dependency-stable — a poll response updating state must NOT change the
+  // callback identities, or `fetch` would re-fire and recreate the loop.
+  const liveTrackingRef = useRef(null);
+  liveTrackingRef.current = liveTracking;
+
+  const fetchLiveTracking = useCallback(
+    async ({ showLoading = true } = {}) => {
+      if (!id) {
         setLiveTracking(null);
         setTrackingError("");
         return;
       }
+
+      // Never stack identical polls — skip if one for THIS order is already
+      // pending. (A pending poll for a DIFFERENT order id is allowed to be
+      // superseded — its result is discarded below via the request token.)
+      if (inFlightLiveTrackingRef.current === id) return;
+      inFlightLiveTrackingRef.current = id;
+      const requestToken = ++liveTrackingRequestTokenRef.current;
 
       if (showLoading) {
         setTrackingLoading(true);
@@ -87,31 +139,59 @@ const OrderTracking = () => {
       }
 
       try {
-        const res = await axios.get(`/api/shipping/track/${awb}`, {
+        // Public DB-snapshot endpoint (optionalAuth). Logged-out customers
+        // get the cron-synced Delhivery snapshot without any session, so the
+        // old adminAuth /api/shipping/track/:awb 401-storm is gone.
+        const res = await axios.get(`/api/orders/${id}/live-tracking`, {
           withCredentials: true,
         });
-        const trackingResponse = res?.data?.tracking || res?.data || null;
-        setLiveTracking(trackingResponse);
-        setTrackingError("");
+        if (requestToken === liveTrackingRequestTokenRef.current) {
+          if (res.data?.liveTracking) {
+            setLiveTracking(res.data.liveTracking);
+            setTrackingError("");
+          }
+        }
       } catch (e) {
-        console.error(e);
-        setLiveTracking(null);
-        setTrackingError("Tracking information is temporarily unavailable.");
+        // Transient failure: keep the last good snapshot on screen and stop
+        // silently. NO retry loop — the interval simply tries again on its
+        // next tick, and a terminal status disables polling downstream.
+        console.error("Live tracking fetch failed", e?.response?.status);
+        if (
+          requestToken === liveTrackingRequestTokenRef.current &&
+          !liveTrackingRef.current
+        ) {
+          setTrackingError("Tracking information is temporarily unavailable.");
+        }
       } finally {
-        setTrackingLoading(false);
-        setRefreshingTracking(false);
+        if (requestToken === liveTrackingRequestTokenRef.current) {
+          inFlightLiveTrackingRef.current = null;
+          setTrackingLoading(false);
+          setRefreshingTracking(false);
+        }
       }
     },
-    [],
+    [id],
   );
 
   const fetch = useCallback(async () => {
+    // Dedupe: one order request at a time for this order id.
+    if (!id || inFlightOrderFetchRef.current === id) return;
+    inFlightOrderFetchRef.current = id;
+    const requestToken = ++orderRequestTokenRef.current;
+
     setLoading(true);
 
     try {
+      // Public tracking endpoint (optionalAuth) — works with or without a
+      // session. For logged-out visitors this resolves guest orders without
+      // touching /api/auth/verify at all.
       const res = await axios.get(`${API}/orders/${id}/tracking`, {
         withCredentials: true,
       });
+
+      // A newer fetch (id change / socket update) superseded this one —
+      // discard its result instead of overwriting newer state.
+      if (requestToken !== orderRequestTokenRef.current) return;
 
       if (res.data?.order) {
         setOrder(res.data.order);
@@ -128,7 +208,7 @@ const OrderTracking = () => {
           res.data.order?.awb ||
           null;
         if (resolvedAwb) {
-          await fetchTrackingData(resolvedAwb, { showLoading: true });
+          await fetchLiveTracking({ showLoading: true });
         } else {
           setLiveTracking(null);
           setTrackingError("");
@@ -138,6 +218,7 @@ const OrderTracking = () => {
         setError("Order not found. Please verify the order ID and try again.");
       }
     } catch (e) {
+      if (requestToken !== orderRequestTokenRef.current) return;
       console.error(e);
       setError(
         e?.response?.status === 404
@@ -145,18 +226,43 @@ const OrderTracking = () => {
           : "Unable to load tracking details. Please try again later.",
       );
     } finally {
-      setLoading(false);
+      // Only the newest request owns the guard + loading flag; a superseded
+      // request must not clear the newer one's state.
+      if (requestToken === orderRequestTokenRef.current) {
+        inFlightOrderFetchRef.current = null;
+        setLoading(false);
+      }
     }
-  }, [id, fetchTrackingData]);
+  }, [id, fetchLiveTracking]);
 
+  // Initial + id-change fetch. `fetch` is stable per (id, fetchLiveTracking);
+  // dedupe guard + request-id token prevent StrictMode double-mounts and
+  // socket updates from stacking identical requests.
   useEffect(() => {
     fetch();
   }, [fetch]);
 
-  useOrdersSync((updated) => {
-    if (!updated || String(updated.id) !== String(id)) return;
-    fetch();
-  });
+  // FIX (tracking 429 root cause): the socket handler identity is stable.
+  // The inline callback here previously re-created a NEW function on every
+  // render, and useOrdersSync re-subscribes whenever its callback identity
+  // changes — so with `fetch`/`setLiveTracking` state updates forcing renders,
+  // the page could churn through subscribe/unsubscribe cycles, and a queued
+  // `order:updated` event during an unsubscribe gap re-fired `fetch()` while
+  // the previous request was still in flight. The handler now reads latest
+  // state via refs and never changes identity, so the subscription is bound
+  // exactly once per mount.
+  const orderIdRef = useRef(id);
+  orderIdRef.current = id;
+  const fetchRef = useRef(fetch);
+  fetchRef.current = fetch;
+
+  const handleOrderSocketUpdate = useCallback((updated) => {
+    const currentOrderId = orderIdRef.current;
+    if (!updated || String(updated.id) !== String(currentOrderId)) return;
+    fetchRef.current();
+  }, []);
+
+  useOrdersSync(handleOrderSocketUpdate);
 
   const awbNumber =
     order?.delhivery_awb || order?.awbNumber || order?.awb || null;
@@ -240,33 +346,49 @@ const OrderTracking = () => {
     order?.estimated_delivery?.toString().trim(),
   );
 
+  // FIX (tracking 429 root cause): single controlled poll timer.
+  // The old effect depended on `liveTracking`, so EVERY poll response tore
+  // down and recreated the interval (resetting its 30s cadence, and each
+  // recreation closed over new state). It also polled the admin-only
+  // /api/shipping/track/:awb which 401'd for logged-out users. Now:
+  //   • the timer depends only on stable things (id + callbacks), so exactly
+  //     ONE interval exists for the lifetime of the mount;
+  //   • the terminal-status check moved INSIDE the tick, reading state via
+  //     a ref, so a delivered/cancelled parcel simply stops ticking instead
+  //     of re-arming the timer;
+  //   • every tick calls fetchLiveTracking, whose in-flight guard skips the
+  //     tick if the previous poll is still pending.
+  //
+  // Ticks are also skipped while the order has no AWB: nothing can move
+  // until a shipment is created, and shipment creation always arrives via a
+  // socket `order:updated` → refetch, so pre-shipment polls are pure waste.
+  const hasAwbRef = useRef(false);
+  hasAwbRef.current = hasAwb;
+
   useEffect(() => {
-    if (!hasAwb || !liveTracking) return;
-
-    const currentStatus = String(
-      liveTracking?.trackingStatus || liveTracking?.status || "",
-    )
-      .trim()
-      .toLowerCase();
-
-    const terminalStatuses = [
-      "delivered",
-      "cancelled",
-      "returned",
-      "rto",
-      "damaged",
-      "lost",
-      "undelivered",
-    ];
-
-    if (!currentStatus || terminalStatuses.includes(currentStatus)) return;
+    if (!id) return undefined;
 
     const intervalId = window.setInterval(() => {
-      void fetchTrackingData(awbNumber, { showLoading: false });
-    }, 30000);
+      if (!hasAwbRef.current) return;
+
+      const current = liveTrackingRef.current;
+
+      // Stop condition evaluated per tick: once the parcel reaches a
+      // terminal status the interval drains to a no-op (and the next
+      // order/tracking refresh clears `liveTracking` entirely).
+      if (
+        current &&
+        (isTerminalStatus(current.trackingStatus) ||
+          current.isTerminal === true)
+      ) {
+        return;
+      }
+
+      void fetchLiveTracking({ showLoading: false });
+    }, LIVE_TRACKING_POLL_MS);
 
     return () => window.clearInterval(intervalId);
-  }, [awbNumber, hasAwb, liveTracking, fetchTrackingData]);
+  }, [id, fetchLiveTracking]);
 
   if (loading) {
     return (
@@ -351,7 +473,7 @@ const OrderTracking = () => {
                 trackingError={trackingError}
                 refreshingTracking={refreshingTracking}
                 onRefreshTracking={() =>
-                  fetchTrackingData(awbNumber, { showLoading: false })
+                  fetchLiveTracking({ showLoading: false })
                 }
               />
             ) : (
@@ -374,7 +496,7 @@ const OrderTracking = () => {
                   <button
                     type="button"
                     onClick={() =>
-                      fetchTrackingData(awbNumber, { showLoading: false })
+                      fetchLiveTracking({ showLoading: false })
                     }
                     disabled={refreshingTracking || trackingLoading}
                     className="inline-flex items-center gap-2 rounded-full border border-bree-border px-3 py-1.5 text-sm font-medium text-bree-text-primary hover:bg-bree-bg disabled:opacity-60"

@@ -65,14 +65,30 @@ export const AuthProvider = ({ children }) => {
     authCheckPromiseRef.current = (async () => {
       try {
         // Always verify via cookie — don't gate on localStorage
+        // Dev-only diagnostic (never logs tokens/cookies): one line per
+        // verify outcome. The dedupe above guarantees at most one verify
+        // per initialization burst, so this cannot log-loop.
+        if (process.env.NODE_ENV === "development") {
+          console.info("[auth] verify started");
+        }
         const response = await axios.get("/api/auth/verify");
+        if (process.env.NODE_ENV === "development") {
+          console.info("[auth] verify finished: authenticated");
+        }
         setUser(response.data);
         if (response.data?.accessToken) {
           localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
         }
         return response.data;
       } catch {
-        // Verify failed — user is not logged in
+        // Verify failed — user is not logged in. This is the EXPECTED outcome
+        // for every logged-out visitor: handle it as terminal state. The
+        // axios interceptor (lib/api.js) short-circuits verify 401s so they
+        // cannot trigger the refresh/auth:expired flow, and this promise is
+        // deduped — so no loop is possible from here.
+        if (process.env.NODE_ENV === "development") {
+          console.info("[auth] verify finished: unauthenticated");
+        }
         setUser(null);
         localStorage.removeItem(ACCESS_TOKEN_KEY);
         return null;
@@ -86,17 +102,24 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    // authCheckPromiseRef dedupes concurrent calls (StrictMode double-mount,
+    // multiple listeners) into a single /api/auth/verify request.
     checkAuth();
   }, [checkAuth]);
 
-  // FIX #3: auth:expired now does a full graceful logout with loading state
-  // instead of bare setUser(null), preventing abrupt mid-page redirects and
-  // ensuring cookies + refresh tokens are properly revoked on the backend.
+  // FIX #3: auth:expired does a full graceful logout — revoking cookies +
+  // refresh tokens on the backend — but MUST NOT flip `loading` back to true.
+  // FIX (auth 429 root cause): setLoading(true) here unmounted the entire
+  // routed tree (AppRouter returns <PageLoader/> while loading), so the page
+  // the expiry happened on was destroyed and remounted right after — its
+  // data-fetch effects re-ran, and any auth check that raced the logout POST
+  // could re-verify and fire auth:expired again. The user state change below
+  // is enough for every consumer (ProtectedRoute redirects, Header re-renders);
+  // the routed tree stays mounted, so no effect storm and no extra requests.
   useEffect(() => {
     const handleAuthExpired = async () => {
       if (authExpiryHandledRef.current) return;
       authExpiryHandledRef.current = true;
-      setLoading(true);
       try {
         await axios.post("/api/auth/logout", {});
       } catch {
@@ -108,7 +131,6 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       broadcastAuthEvent("logout");
-      setLoading(false);
       toast.error("Your session has expired. Please log in again.");
       authExpiryHandledRef.current = false;
     };
