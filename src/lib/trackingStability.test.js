@@ -174,4 +174,75 @@ describe("public tracking request stability", () => {
       'orderRouter.get("/:id/success", auth, getOrderSuccess)',
     );
   });
+
+  // ── Customer return/refund tracking fix (audit follow-up): the public
+  //    tracking endpoint now exposes exactly the return/inspection/refund
+  //    fields the customer timeline needs, and nothing more. ──────────────
+
+  test("REGRESSION FIX: getOrderTracking now selects the return/inspection/refund fields the customer timeline needs", () => {
+    const getOrderTrackingSource = orderControllerSource.slice(
+      orderControllerSource.indexOf("export const getOrderTracking"),
+      orderControllerSource.indexOf("export const getOrderLiveTracking"),
+    );
+    for (const column of [
+      "o.return_requested_at",
+      "o.return_approved_at",
+      "o.reverse_awb",
+      "o.reverse_tracking_url",
+      "o.reverse_shipment_created_at",
+      "o.reverse_pickup_request_id",
+      "o.returned_at",
+      "o.inspection_status",
+      "o.refund_status",
+      "o.refund_amount",
+      "o.refund_completed_at",
+    ]) {
+      expect(getOrderTrackingSource).toContain(column);
+    }
+  });
+
+  test("REGRESSION FIX: getOrderTracking still does NOT expose admin-internal return/refund fields (reason/notes/approver identity/Razorpay refund id)", () => {
+    const getOrderTrackingSource = orderControllerSource.slice(
+      orderControllerSource.indexOf("export const getOrderTracking"),
+      orderControllerSource.indexOf("export const getOrderLiveTracking"),
+    );
+    // These columns exist on the orders table but must never reach this
+    // public, unauthenticated, order-id-guessable-only endpoint.
+    expect(getOrderTrackingSource).not.toMatch(/o\.return_reason\b/);
+    expect(getOrderTrackingSource).not.toMatch(/o\.return_notes\b/);
+    expect(getOrderTrackingSource).not.toMatch(/o\.return_approved_by\b/);
+    expect(getOrderTrackingSource).not.toMatch(/o\.refund_reference\b/);
+    // The generic secrets/credentials sweep (razorpay keys, tokens, etc.)
+    // is already covered by the test above this one — re-run it here too
+    // since the SELECT list just grew.
+    expect(getOrderTrackingSource).not.toMatch(/razorpay_key|api_key|api_secret/i);
+    expect(getOrderTrackingSource).not.toMatch(/is_admin|admin_/i);
+  });
+
+  test("REGRESSION FIX: OrderTracking.js renders the Return & Refund Progress timeline once a return has started, alongside (not replacing) the existing Returns & Support gate", () => {
+    expect(trackingSource).toContain("ReturnRefundTimeline");
+    expect(trackingSource).toMatch(/hasReturnInProgress/);
+    // The two conditions must be mutually exclusive complements of the
+    // same underlying facts (delivered + return_status), so every
+    // delivered order shows exactly one of the two sections, never both,
+    // never neither.
+    expect(trackingSource).toMatch(
+      /canShowReturnSupport =\s*\n\s*String\(order\?\.order_status \|\| ""\)\.toLowerCase\(\) === "delivered" &&\s*\n\s*!order\?\.return_status;/,
+    );
+    expect(trackingSource).toMatch(
+      /hasReturnInProgress =\s*\n\s*String\(order\?\.order_status \|\| ""\)\.toLowerCase\(\) === "delivered" &&\s*\n\s*Boolean\(order\?\.return_status\);/,
+    );
+  });
+
+  test("existing 7-step normal order timeline (CUSTOMER_TIMELINE) is completely unchanged by this fix", () => {
+    expect(trackingSource).toMatch(
+      /const CUSTOMER_TIMELINE = \[\s*\n\s*\{ status: "pending_payment", label: "Order Placed" \},\s*\n\s*\{ status: "paid", label: "Paid" \},\s*\n\s*\{ status: "processing", label: "Processing" \},\s*\n\s*\{ status: "ready_to_ship", label: "Ready to Ship" \},\s*\n\s*\{ status: "shipped", label: "Shipped" \},\s*\n\s*\{ status: "out_for_delivery", label: "Out for Delivery" \},\s*\n\s*\{ status: "delivered", label: "Delivered" \},\s*\n\s*\];/,
+    );
+  });
+
+  test("no return_status at all still renders the pre-existing Returns & Support panel unchanged (ReturnRefundTimeline addition does not replace it)", () => {
+    expect(trackingSource).toContain("Returns & Support");
+    expect(trackingSource).toContain("{canShowReturnSupport && (");
+    expect(trackingSource).toContain("{hasReturnInProgress && <ReturnRefundTimeline order={order} />}");
+  });
 });

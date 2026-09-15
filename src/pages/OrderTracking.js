@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import TrackingTimeline from "@/components/orders/TrackingTimeline";
 import OrderTrackingCard from "@/components/orders/OrderTrackingCard";
+import ReturnRefundTimeline from "@/components/orders/ReturnRefundTimeline";
 import useOrdersSync from "@/hooks/useOrdersSync";
 
 const getShippingDisplay = (order) => {
@@ -445,6 +446,18 @@ const OrderTracking = () => {
     String(order?.order_status || "").toLowerCase() === "delivered" &&
     !order?.return_status;
 
+  // FIX (customer return/refund tracking audit): previously return_status
+  // was used ONLY to hide the "Returns & Support" panel once a return
+  // started — nothing replaced it, so the customer saw zero return/refund
+  // progress for the rest of the lifecycle despite already receiving
+  // Email/WhatsApp updates about it. This mirrors canShowReturnSupport's
+  // own condition (delivered order, return_status set) so the two are
+  // always mutually exclusive and together cover every state: no return
+  // yet -> support panel; return in progress -> progress timeline.
+  const hasReturnInProgress =
+    String(order?.order_status || "").toLowerCase() === "delivered" &&
+    Boolean(order?.return_status);
+
   return (
     <div className="pt-24 pb-12 min-h-screen bg-bree-bg">
       <Helmet>
@@ -640,6 +653,8 @@ const OrderTracking = () => {
                 )}
               </div>
             )}
+
+            {hasReturnInProgress && <ReturnRefundTimeline order={order} />}
           </div>
 
           <aside className="space-y-6">

@@ -1513,14 +1513,34 @@ const OrderModal = ({
                         within 48 hours of delivery.
                       </p>
                     )}
-                    <Button
-                      onClick={() => setReasonModal("approve_return")}
-                      disabled={!canStartReturn}
-                      className="bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <RotateCcw className="w-4 h-4 mr-2" />
-                      Approve Return Request
-                    </Button>
+                    {/* FIX (return flow audit): rejectReturn has always
+                        existed on the backend, and this reason-modal config
+                        (reject_return, above) has always been fully wired to
+                        submit to it — but no button in this render ever
+                        opened it, so an admin could only approve a return
+                        request from this state, never reject one through the
+                        UI. Unlike approval, the backend's rejectReturn does
+                        not require the 48-hour window to still be open (it
+                        only requires no return already in progress), so this
+                        is gated on that alone, not canStartReturn. */}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => setReasonModal("approve_return")}
+                        disabled={!canStartReturn}
+                        className="bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <RotateCcw className="w-4 h-4 mr-2" />
+                        Approve Return Request
+                      </Button>
+                      <Button
+                        onClick={() => setReasonModal("reject_return")}
+                        disabled={Boolean(returnStatus)}
+                        variant="outline"
+                        className="border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Reject Return Request
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-4">
