@@ -84,23 +84,25 @@ ${formData.message}
     try {
       await axios.post('/api/contact', formData);
       toast.success("Message sent successfully. Opening WhatsApp...");
+      // FIX (Medium #30 — Phase 3): this reset used to run unconditionally
+      // after the try/catch/finally, wiping the typed message even when the
+      // backend save failed. If the WhatsApp popup is then blocked (popup
+      // blockers) or missed, the customer's message was gone with no way to
+      // recover it. Now only clears on a confirmed successful save.
+      setFormData({
+        name: "",
+        email: "",
+        phone: "",
+        message: "",
+      });
     } catch (error) {
       console.error('Backend save failed:', error);
       toast.error(getApiErrorMessage(error));
     } finally {
       // Open WhatsApp regardless so the user can continue the conversation
       window.open(whatsappURL, '_blank');
+      setIsLoading(false);
     }
-
-    // Reset Form
-    setFormData({
-      name: "",
-      email: "",
-      phone: "",
-      message: "",
-    });
-
-    setIsLoading(false);
   };
 
   return (

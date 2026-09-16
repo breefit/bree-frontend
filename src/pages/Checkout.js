@@ -12,10 +12,41 @@ import CartUpdateModal from "@/components/CartUpdateModal";
 // ── Dev-only logger ────────────────────────────────────────────────────────
 // Keeps debugging visibility in development while staying silent in
 // production builds.
-const devLog = (...args) => {
-  if (import.meta.env.DEV) {
+// FIX (ISSUE-029): this used to read `import.meta.env.DEV` — a Vite-only
+// construct. This project is CRA/craco (webpack), which does not define
+// `import.meta.env`, so every one of this file's 25+ devLog() call sites
+// threw `TypeError: Cannot read properties of undefined (reading 'DEV')`
+// on the single most business-critical page in the app. `process.env
+// .NODE_ENV` is the standard CRA equivalent — webpack replaces it with a
+// literal string at build time via DefinePlugin, so this branch is
+// statically eliminated (not merely silenced) in a production build.
+// Exported (in addition to being used inline below) so its behavior across
+// NODE_ENV values can be asserted by a real test — see Checkout.devLog.test.js.
+export const devLog = (...args) => {
+  if (process.env.NODE_ENV !== "production") {
     console.log(...args);
   }
+};
+
+// FIX (Phase 3B — Medium #6): checkout double-submit / duplicate-order
+// protection. One key is generated per mount of this page (see
+// idempotencyKeyRef below) and sent with every real order-creation
+// network call within that mount — a double-click or an automatic retry
+// of the exact same checkout attempt shares it, so the backend
+// (checkoutIdempotencyService.js) can recognize and safely dedupe it.
+// Deliberately NOT tied to the customer's identity or to cart contents —
+// see that service's own comment for why. Falls back to a manual UUIDv4
+// if crypto.randomUUID() isn't available (older browsers / non-secure
+// contexts) rather than sending no key at all.
+const generateIdempotencyKey = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 };
 
 // ── Magic Checkout helpers ────────────────────────────────────────────────────
@@ -200,6 +231,15 @@ const Checkout = () => {
   // }
   const [reminderSelections, setReminderSelections] = useState({});
   const hasInitialisedRef = useRef(false);
+  // FIX (Phase 3B — Medium #6): stable for the lifetime of this mount —
+  // NOT regenerated on re-render — so a double-click or retry of the same
+  // checkout attempt reuses it. A genuinely new checkout (a fresh page
+  // load) gets a fresh key. Lazily assigned (not `useRef(generateIdempotencyKey())`)
+  // so a fresh UUID isn't wastefully generated-and-discarded on every render.
+  const idempotencyKeyRef = useRef(null);
+  if (!idempotencyKeyRef.current) {
+    idempotencyKeyRef.current = generateIdempotencyKey();
+  }
 
   const getReminderSelectedPhone = (itemId) => {
     const reminder = reminderSelections[itemId];
@@ -350,6 +390,18 @@ const Checkout = () => {
       // ── Re-sync cart before payment ──────────────────────────────────────
       setLoadingPhase("syncing");
       const syncResult = await syncCart();
+      // FIX (Medium #31 — Phase 3): syncCart failures (network error, 5xx,
+      // etc.) used to be silently swallowed — checkout proceeded on a cart
+      // that was never actually revalidated for price/availability changes,
+      // with no indication to the customer. Warn but don't hard-block: a
+      // transient failure here shouldn't strand a customer who otherwise has
+      // a valid cart, and the backend still authoritatively re-validates
+      // prices when the order is actually created.
+      if (syncResult?.syncFailed) {
+        toast.warning(
+          "Couldn't verify the latest prices and availability for your cart. Proceeding with your last known cart — please review your order before paying.",
+        );
+      }
       if (syncResult?.anyChange && !acceptedChanges) {
         const flagged = (syncResult.items || []).filter(
           (i) => i.priceChanged || !i.available,
@@ -434,6 +486,7 @@ const Checkout = () => {
         // Include reminder data
         reminders,
         discountAmount: orderDiscount,
+        idempotency_key: idempotencyKeyRef.current,
       };
 
       devLog(

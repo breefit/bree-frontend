@@ -13,6 +13,8 @@ import {
   Clock,
   MessageSquare,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
@@ -30,6 +32,14 @@ const API = "/api/admin";
 const AUTH = () => ({
   withCredentials: true,
 });
+
+// FIX (ISSUE-022/ISSUE-023): the search box already sent `search` to the
+// backend, but getInquiries never read it (a genuine no-op — see the
+// backend fix), and this page never sent page/limit or offered any way to
+// reach a second page at all, so anything beyond the first 20 inquiries
+// was invisible. Matches the server-side pagination pattern already
+// proven correct in Orders.js/AdminSubscriptions.js/BulkOrders.js.
+const PAGE_SIZE = 20;
 
 const InquiryCard = ({ inquiry, onDelete, onToggleContacted, onWhatsApp }) => {
   const phoneNumber =
@@ -182,40 +192,64 @@ const ContactInquiries = () => {
 
   const [dateFilter, setDateFilter] = useState("all");
 
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+
   const handleSearch = useCallback(() => {
+    setPage(1);
     setSearchQuery(searchInput.trim());
   }, [searchInput]);
 
   const clearSearch = useCallback(() => {
     setSearchInput("");
+    setPage(1);
     setSearchQuery("");
   }, []);
 
-  // Fetch inquiries
+  const handleFilterChange = useCallback((key) => {
+    setPage(1);
+    setFilter(key);
+  }, []);
+
+  // Fetch inquiries — `filter` (all/pending/contacted) maps onto the
+  // backend's own `contacted` param so switching tabs (or paginating
+  // within one) correctly narrows across the WHOLE dataset, not just
+  // whatever happened to be on the currently-loaded page.
   const fetchInquiries = useCallback(async () => {
     setLoading(true);
 
     try {
-      const res = await axios.get(
-        `${API}/inquiries?search=${encodeURIComponent(searchQuery)}`,
-        AUTH(),
-      );
+      const contactedParam =
+        filter === "contacted" ? "true" : filter === "pending" ? "false" : "all";
+      const res = await axios.get(`${API}/inquiries`, {
+        ...AUTH(),
+        params: {
+          search: searchQuery || undefined,
+          contacted: contactedParam,
+          page,
+          limit: PAGE_SIZE,
+        },
+      });
 
       setInquiries(res.data?.inquiries || res.data || []);
+      setTotal(Number(res.data?.total || 0));
     } catch (error) {
       console.error(error);
 
       setInquiries([]);
+      setTotal(0);
 
       toast.error("Failed to load inquiries");
     } finally {
       setLoading(false);
     }
-  }, [searchQuery]);
+  }, [searchQuery, filter, page]);
 
   useEffect(() => {
     fetchInquiries();
   }, [fetchInquiries]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Delete Inquiry
   const handleDelete = async (id) => {
@@ -291,17 +325,12 @@ const ContactInquiries = () => {
     window.open(`https://wa.me/91${cleanedNumber}?text=${text}`, "_blank");
   };
 
-  // Filters
+  // Filters — `contacted`/`pending` is now applied server-side (see
+  // fetchInquiries), so it's not re-applied here; `dateFilter` (a relative
+  // time window) still narrows only within the current page, same as
+  // before this fix.
   const filtered = useMemo(() => {
     let filteredData = [...inquiries];
-
-    if (filter === "contacted") {
-      filteredData = filteredData.filter((i) => i.contacted);
-    }
-
-    if (filter === "pending") {
-      filteredData = filteredData.filter((i) => !i.contacted);
-    }
 
     const now = new Date();
 
@@ -334,7 +363,7 @@ const ContactInquiries = () => {
     }
 
     return filteredData;
-  }, [inquiries, filter, dateFilter]);
+  }, [inquiries, dateFilter]);
 
   // Tabs
   const tabs = [
@@ -415,7 +444,7 @@ const ContactInquiries = () => {
             {tabs.map(({ key, label, count }) => (
               <button
                 key={key}
-                onClick={() => setFilter(key)}
+                onClick={() => handleFilterChange(key)}
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                   filter === key
                     ? "bg-bree-primary text-white"
@@ -503,19 +532,49 @@ const ContactInquiries = () => {
             </p>
           </div>
         ) : (
-          <motion.div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-stretch">
-            <AnimatePresence>
-              {filtered.map((inquiry) => (
-                <InquiryCard
-                  key={inquiry.id}
-                  inquiry={inquiry}
-                  onDelete={handleDelete}
-                  onToggleContacted={handleToggleContacted}
-                  onWhatsApp={handleWhatsApp}
-                />
-              ))}
-            </AnimatePresence>
-          </motion.div>
+          <>
+            <motion.div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-stretch">
+              <AnimatePresence>
+                {filtered.map((inquiry) => (
+                  <InquiryCard
+                    key={inquiry.id}
+                    inquiry={inquiry}
+                    onDelete={handleDelete}
+                    onToggleContacted={handleToggleContacted}
+                    onWhatsApp={handleWhatsApp}
+                  />
+                ))}
+              </AnimatePresence>
+            </motion.div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-8">
+                <p className="text-sm text-bree-text-secondary">
+                  Page {page} of {totalPages} · {total} inquir
+                  {total === 1 ? "y" : "ies"}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1 || loading}
+                    className="w-9 h-9 rounded-lg border-bree-border p-0"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages || loading}
+                    className="w-9 h-9 rounded-lg border-bree-border p-0"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </AdminLayout>

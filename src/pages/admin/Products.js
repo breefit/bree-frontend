@@ -32,6 +32,7 @@ const Products = () => {
   const [relationTarget, setRelationTarget] = useState(null);
   const [relations, setRelations] = useState([]);
   const [relationsLoading, setRelationsLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   const filteredProducts = useMemo(() => {
     const normalizedQuery = searchQuery.toLowerCase();
@@ -78,14 +79,25 @@ const Products = () => {
     setOpen(true);
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (product) => {
+    if (deletingId) return;
+    if (
+      !window.confirm(
+        `Delete "${product.name}"? This cannot be undone and may affect availability and past order history display.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingId(product.id);
     try {
-      await axios.delete(`/api/admin/products/${id}`);
-      setProducts((prev) => prev.filter((item) => item.id !== id));
+      await axios.delete(`/api/admin/products/${product.id}`);
+      setProducts((prev) => prev.filter((item) => item.id !== product.id));
       toast.success("Product deleted");
     } catch (error) {
       console.error("Failed to delete product", error);
       toast.error(getApiErrorMessage(error));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -412,8 +424,9 @@ const Products = () => {
                               <Pencil className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => handleDelete(product.id)}
-                              className="w-10 h-10 rounded-xl bg-red-50 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition"
+                              onClick={() => handleDelete(product)}
+                              disabled={deletingId === product.id}
+                              className="w-10 h-10 rounded-xl bg-red-50 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed"
                               title="Delete product"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -512,8 +525,9 @@ const Products = () => {
                               <Pencil className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => handleDelete(product.id)}
-                              className="w-9 h-9 rounded-xl bg-red-50 text-red-500 flex items-center justify-center"
+                              onClick={() => handleDelete(product)}
+                              disabled={deletingId === product.id}
+                              className="w-9 h-9 rounded-xl bg-red-50 text-red-500 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>

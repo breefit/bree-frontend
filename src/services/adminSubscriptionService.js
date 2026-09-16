@@ -41,3 +41,14 @@ export const fetchAdminFailedRenewals = () =>
   axios
     .get(`${API}/subscriptions/failed-renewals`, AUTH)
     .then((res) => res.data);
+
+// FIX (ISSUE-012): Model B (pay-once, ship-monthly packages) — a distinct
+// business model from the recurring-billing subscriptions above, never
+// converted into one, and never queried by any of the functions above.
+export const fetchAdminPackagePurchases = (params = {}) =>
+  axios
+    .get(`${API}/subscriptions/packages`, {
+      ...AUTH,
+      params,
+    })
+    .then((res) => res.data);

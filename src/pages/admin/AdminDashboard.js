@@ -160,18 +160,16 @@ const AdminDashboard = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, ordersRes, bulkStatsRes] = await Promise.all([
+        const [statsRes, bulkStatsRes] = await Promise.all([
           axios.get(`${API}/dashboard`, { withCredentials: true }),
-          axios.get(`${API}/orders?limit=5`, { withCredentials: true }),
           axios.get(`${API}/bulk-bookings/stats`, { withCredentials: true }),
         ]);
         setStats(statsRes.data);
-        const dashboardRecentOrders = Array.isArray(
-          statsRes.data?.recent_orders,
-        )
-          ? statsRes.data.recent_orders
-          : ordersRes.data?.orders || [];
-        setRecentOrders(dashboardRecentOrders);
+        setRecentOrders(
+          Array.isArray(statsRes.data?.recent_orders)
+            ? statsRes.data.recent_orders
+            : [],
+        );
         setBulkStats(bulkStatsRes.data?.data);
       } catch (error) {
         console.error("❌ Error fetching dashboard data:", error);
@@ -194,16 +192,16 @@ const AdminDashboard = () => {
   // subscribe to order updates and refresh stats/recent orders
   useOrdersSync(async (order) => {
     try {
-      const [statsRes, ordersRes, bulkStatsRes] = await Promise.all([
+      const [statsRes, bulkStatsRes] = await Promise.all([
         axios.get(`${API}/dashboard`, { withCredentials: true }),
-        axios.get(`${API}/orders?limit=5`, { withCredentials: true }),
         axios.get(`${API}/bulk-bookings/stats`, { withCredentials: true }),
       ]);
       setStats(statsRes.data);
-      const dashboardRecentOrders = Array.isArray(statsRes.data?.recent_orders)
-        ? statsRes.data.recent_orders
-        : ordersRes.data?.orders || [];
-      setRecentOrders(dashboardRecentOrders);
+      setRecentOrders(
+        Array.isArray(statsRes.data?.recent_orders)
+          ? statsRes.data.recent_orders
+          : [],
+      );
       setBulkStats(bulkStatsRes.data?.data);
     } catch (e) {
       console.warn("❌ Failed to refresh dashboard after order update", e);

@@ -1,7 +1,4 @@
-import React, { useState } from "react";
-import { Download, Loader2 } from "lucide-react";
-import axios from "@/lib/api";
-import { toast } from "sonner";
+import React from "react";
 import { getStatusLabel, STATUS_BADGE_CLASSES } from "./orderStatus";
 
 const getShippingDisplay = (order) => {
@@ -80,6 +77,37 @@ const DELHIVERY_ONLY_BADGE_CLASSES = {
 
 const DEFAULT_BADGE_CLASS = "bg-gray-100 text-gray-700 border-gray-200";
 
+// FIX (Medium #18 — Phase 3): raw Delhivery courier jargon (Manifested,
+// Bagged, Reached Destination Hub, etc.) used to be shown to customers
+// verbatim — internal courier-operations terminology a customer has no
+// context for. Maps every raw status this app has been seen to receive
+// (see cron/shippingTrackingCron.js's status handling and
+// STATUS_BADGE_CLASSES/DELHIVERY_ONLY_BADGE_CLASSES above) to a clean,
+// customer-facing label; anything not in this map falls back to the raw
+// value rather than hiding it, so an unmapped future Delhivery status
+// still shows SOMETHING instead of silently disappearing.
+const DELHIVERY_STATUS_LABELS = {
+  manifested: "Order Received by Courier",
+  "not picked": "Awaiting Pickup",
+  "pickup scheduled": "Pickup Scheduled",
+  bagged: "Preparing for Dispatch",
+  dispatched: "Dispatched",
+  "in transit": "In Transit",
+  "reached destination hub": "Arrived at Local Facility",
+  "out for delivery": "Out for Delivery",
+  delivered: "Delivered",
+  rto: "Returned to Sender",
+  "rto delivered": "Returned to Sender",
+  cancelled: "Cancelled",
+  pending: "Pending",
+};
+
+const getCustomerFacingTrackingLabel = (status) => {
+  if (!status || status === "-") return "Unknown";
+  const normalized = String(status).trim().toLowerCase();
+  return DELHIVERY_STATUS_LABELS[normalized] || status;
+};
+
 // Always returns a class - never null - so the badge can always be shown.
 // Order of precedence: existing STATUS_BADGE_CLASSES -> Delhivery-only map
 // -> neutral gray default (covers "-"/unknown statuses too).
@@ -104,7 +132,6 @@ const OrderTrackingCard = ({
   refreshingTracking = false,
   onRefreshTracking,
 }) => {
-  const [downloadingLabel, setDownloadingLabel] = useState(false);
   const statusKey = order.status || order.order_status || "pending";
   const badgeClass =
     STATUS_BADGE_CLASSES[statusKey] ||
@@ -137,11 +164,13 @@ const OrderTrackingCard = ({
     "tracking_number",
     "trackingNumber",
   ]);
-  const shipmentId = getField(order, ["shipment_id", "shipmentId"]);
-  const pickupRequestId = getField(order, [
-    "pickup_request_id",
-    "pickupRequestId",
-  ]);
+  // FIX (Medium #18 — Phase 3): shipment_id/pickup_request_id are internal
+  // Delhivery/ops handles with no customer meaning — used to be displayed
+  // as their own "Shipment ID"/"Pickup Request ID" rows below. Removed
+  // entirely from the customer-facing card rather than mapped/labeled,
+  // since there's no customer-relevant translation of an internal courier
+  // reference id (unlike the AWB/tracking number, which the customer can
+  // actually use to track their package themselves).
   const trackingStatus =
     trackingData?.trackingStatus ||
     trackingData?.status ||
@@ -168,48 +197,11 @@ const OrderTrackingCard = ({
 
   // ===== Modified =====
   const trackingBadgeClass = getTrackingBadgeClass(trackingStatus);
-  const trackingStatusDisplay =
-    trackingStatus === "-" ? "Unknown" : trackingStatus;
+  // FIX (Medium #18 — Phase 3): was the raw Delhivery status string
+  // verbatim; now passed through the customer-facing label map above.
+  const trackingStatusDisplay = getCustomerFacingTrackingLabel(trackingStatus);
   // ===== End Modified =====
   // ===== End Added =====
-
-  const handleDownloadLabel = async () => {
-    const activeAwb = awbNumber && awbNumber !== "-" ? awbNumber : null;
-    if (!activeAwb) return;
-
-    setDownloadingLabel(true);
-    try {
-      const response = await axios.get(`/api/shipping/label/${activeAwb}`, {
-        withCredentials: true,
-        responseType: "blob",
-      });
-      const contentType =
-        response?.headers?.["content-type"] ||
-        response?.headers?.["Content-Type"] ||
-        "application/pdf";
-      const blob =
-        response?.data instanceof Blob
-          ? response.data
-          : new Blob([response.data], { type: contentType });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `label-${activeAwb}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => window.URL.revokeObjectURL(url), 100);
-      toast.success("Shipping label downloaded");
-    } catch (err) {
-      const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        "Failed to download shipping label";
-      toast.error(message);
-    } finally {
-      setDownloadingLabel(false);
-    }
-  };
 
   return (
     <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
@@ -297,18 +289,6 @@ const OrderTrackingCard = ({
             </div>
           </div>
           <div className="text-sm text-bree-text-secondary">
-            <div>Shipment ID</div>
-            <div className="font-medium text-bree-text-primary">
-              {shipmentId}
-            </div>
-          </div>
-          <div className="text-sm text-bree-text-secondary">
-            <div>Pickup Request ID</div>
-            <div className="font-medium text-bree-text-primary">
-              {pickupRequestId}
-            </div>
-          </div>
-          <div className="text-sm text-bree-text-secondary">
             <div>Current Location</div>
             <div className="font-medium text-bree-text-primary">
               {currentLocation}
@@ -328,35 +308,24 @@ const OrderTrackingCard = ({
           </div>
         </div>
 
-        {(trackingUrl !== "-" || awbNumber !== "-") && (
+        {/* FIX (ISSUE-006): "Download Shipping Label" used to call
+          GET /api/shipping/label/:awb here, which is mounted behind
+          adminAuth — a real customer never holds an admin token, so every
+          click 401'd. Removed rather than adding a new customer-facing
+          endpoint: a shipping label is a warehouse/courier document (the
+          same Delhivery-format PDF staff print to stick on the package,
+          not something a customer has a use for) — customers still get
+          the tracking link below. */}
+        {trackingUrl !== "-" && (
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            {trackingUrl !== "-" && (
-              <a
-                href={trackingUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-medium text-bree-primary hover:underline"
-              >
-                Track Shipment
-              </a>
-            )}
-            {awbNumber !== "-" && (
-              <button
-                type="button"
-                onClick={handleDownloadLabel}
-                disabled={downloadingLabel}
-                className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium border border-bree-border text-bree-text-primary hover:bg-bree-bg transition disabled:opacity-60"
-              >
-                {downloadingLabel ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Download className="w-4 h-4 mr-2" />
-                )}
-                {downloadingLabel
-                  ? "Downloading..."
-                  : "Download Shipping Label"}
-              </button>
-            )}
+            <a
+              href={trackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-bree-primary hover:underline"
+            >
+              Track Shipment
+            </a>
           </div>
         )}
       </div>

@@ -10,6 +10,9 @@ import {
   Star,
   CalendarDays,
   X,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import AdminLayout from "@/components/admin/AdminLayout";
@@ -22,29 +25,70 @@ const AUTH = () => ({
   withCredentials: true,
 });
 
+// FIX (ISSUE-023 — capped at 20, no pagination): getAdminTestimonials
+// never returned a total count at all, so this page had no way to build
+// real pagination even if it tried — only ever showing the first page's
+// worth of testimonials. Matches the server-side pagination pattern
+// already proven correct in Orders.js/AdminSubscriptions.js/BulkOrders.js.
+const PAGE_SIZE = 20;
+
 export default function TestimonialsAdmin() {
   const [filter, setFilter] = useState("all");
   const [testimonials, setTestimonials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   // VIEW MODAL
   const [selectedTestimonial, setSelectedTestimonial] = useState(null);
+  const [actioningId, setActioningId] = useState(null);
 
+  const handleSearch = useCallback(() => {
+    setPage(1);
+    setSearchQuery(searchInput.trim());
+  }, [searchInput]);
+
+  const clearSearch = useCallback(() => {
+    setSearchInput("");
+    setPage(1);
+    setSearchQuery("");
+  }, []);
+
+  const handleFilterChange = useCallback((key) => {
+    setPage(1);
+    setFilter(key);
+  }, []);
+
+  // `filter` (status) is sent to the backend now — narrows across the
+  // WHOLE dataset, not just whatever happened to be on the currently
+  // loaded page.
   const fetchTestimonials = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await axios.get(`${API}/testimonials`, AUTH());
+      const res = await axios.get(`${API}/testimonials`, {
+        ...AUTH(),
+        params: {
+          status: filter,
+          search: searchQuery || undefined,
+          page,
+          limit: PAGE_SIZE,
+        },
+      });
+      const rows = res.data?.testimonials || res.data || [];
       setTestimonials(
-        (res.data || []).map((item) => ({
+        rows.map((item) => ({
           ...item,
           review: item.text,
           status: item.status || (item.approved ? "approved" : "pending"),
           date: item.created_at,
         })),
       );
+      setTotal(Number(res.data?.total ?? rows.length));
     } catch (err) {
       console.error("Unable to fetch testimonials", err);
       setError(
@@ -53,10 +97,11 @@ export default function TestimonialsAdmin() {
           "Unable to fetch testimonials.",
       );
       setTestimonials([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filter, searchQuery, page]);
 
   useEffect(() => {
     fetchTestimonials();
@@ -75,8 +120,9 @@ export default function TestimonialsAdmin() {
   const [dateFilter, setDateFilter] = useState("all");
 
   const handleApprove = async (id) => {
+    if (actioningId) return;
+    setActioningId(id);
     try {
-      setLoading(true);
       await axios.patch(`${API}/testimonials/${id}/approve`, {}, AUTH());
       toast.success("Testimonial approved");
       await fetchTestimonials();
@@ -86,13 +132,14 @@ export default function TestimonialsAdmin() {
         error?.response?.data?.message || "Unable to approve testimonial.",
       );
     } finally {
-      setLoading(false);
+      setActioningId(null);
     }
   };
 
   const handleReject = async (id) => {
+    if (actioningId) return;
+    setActioningId(id);
     try {
-      setLoading(true);
       await axios.patch(`${API}/testimonials/${id}/reject`, {}, AUTH());
       toast.success("Testimonial rejected");
       await fetchTestimonials();
@@ -102,16 +149,17 @@ export default function TestimonialsAdmin() {
         error?.response?.data?.message || "Unable to reject testimonial.",
       );
     } finally {
-      setLoading(false);
+      setActioningId(null);
     }
   };
 
   const handleDelete = async (id) => {
+    if (actioningId) return;
     if (!window.confirm("Delete this testimonial? This cannot be undone."))
       return;
 
+    setActioningId(id);
     try {
-      setLoading(true);
       await axios.delete(`${API}/testimonials/${id}`, AUTH());
       toast.success("Testimonial deleted");
       await fetchTestimonials();
@@ -121,19 +169,16 @@ export default function TestimonialsAdmin() {
         error?.response?.data?.message || "Unable to delete testimonial.",
       );
     } finally {
-      setLoading(false);
+      setActioningId(null);
     }
   };
 
+  // Status filtering is now applied server-side (see fetchTestimonials);
+  // `dateFilter` (a relative time window) still narrows only within the
+  // current page, same as before this fix.
   const filteredTestimonials = useMemo(() => {
     let filtered = testimonials;
 
-    // STATUS FILTER
-    if (filter !== "all") {
-      filtered = filtered.filter((item) => item.status === filter);
-    }
-
-    // DATE FILTER
     const now = new Date();
 
     if (dateFilter === "today") {
@@ -165,10 +210,14 @@ export default function TestimonialsAdmin() {
     }
 
     return filtered;
-  }, [filter, dateFilter, testimonials]);
+  }, [dateFilter, testimonials]);
 
+  // `all` reflects the true server-side total for the current filter/
+  // search; per-status counts below are necessarily figures for the
+  // loaded page only (the backend doesn't expose a per-status breakdown),
+  // same pre-existing approximation as before this fix.
   const counts = {
-    all: testimonials.length,
+    all: filter === "all" ? total : testimonials.length,
 
     pending: testimonials.filter((t) => t.status === "pending").length,
 
@@ -234,14 +283,54 @@ export default function TestimonialsAdmin() {
         )}
 
         {/* Heading */}
-        <div className="mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold text-bree-text-primary">
-            Testimonials
-          </h1>
+        <div className="mb-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-bree-text-primary">
+              Testimonials
+            </h1>
 
-          <p className="text-sm text-bree-text-secondary mt-1">
-            Manage customer reviews and approvals
-          </p>
+            <p className="text-sm text-bree-text-secondary mt-1">
+              Manage customer reviews and approvals
+            </p>
+          </div>
+
+          {/* FIX (ISSUE-022/ISSUE-023): search box — this page had no
+            search at all before, only client-side status/date filters
+            over whatever fit on the first (uncapped) page. */}
+          <div className="flex items-center gap-2 w-full lg:w-96">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-bree-text-secondary" />
+              <input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSearch();
+                  }
+                }}
+                placeholder="Search by name, role or review text..."
+                className="w-full pl-11 pr-11 h-11 rounded-2xl border border-bree-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-bree-primary/30"
+              />
+              {searchInput && (
+                <button
+                  onClick={clearSearch}
+                  className="absolute right-4 top-1/2 -translate-y-1/2"
+                  aria-label="Clear search"
+                >
+                  <X className="w-4 h-4 text-bree-text-secondary hover:text-bree-primary" />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={handleSearch}
+              disabled={loading}
+              className="h-11 rounded-2xl px-4 text-sm font-medium bg-bree-primary text-white hover:bg-bree-primary/90 disabled:opacity-50 flex items-center"
+            >
+              <Search className="w-4 h-4 mr-2" />
+              Search
+            </button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -281,7 +370,7 @@ export default function TestimonialsAdmin() {
             {TABS.map((tab) => (
               <button
                 key={tab.key}
-                onClick={() => setFilter(tab.key)}
+                onClick={() => handleFilterChange(tab.key)}
                 className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all duration-300 ${
                   filter === tab.key
                     ? "bg-bree-primary text-white shadow-sm"
@@ -415,7 +504,8 @@ export default function TestimonialsAdmin() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => handleApprove(testimonial.id)}
-                    className="h-10 px-4 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-medium hover:bg-emerald-100 transition flex items-center gap-2"
+                    disabled={actioningId === testimonial.id}
+                    className="h-10 px-4 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-medium hover:bg-emerald-100 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <CheckCircle className="w-4 h-4" />
                     Approve
@@ -423,7 +513,8 @@ export default function TestimonialsAdmin() {
 
                   <button
                     onClick={() => handleReject(testimonial.id)}
-                    className="h-10 px-4 rounded-xl bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100 transition flex items-center gap-2"
+                    disabled={actioningId === testimonial.id}
+                    className="h-10 px-4 rounded-xl bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <XCircle className="w-4 h-4" />
                     Reject
@@ -439,7 +530,8 @@ export default function TestimonialsAdmin() {
 
                   <button
                     onClick={() => handleDelete(testimonial.id)}
-                    className="h-10 w-10 rounded-xl border border-bree-border flex items-center justify-center hover:bg-red-50 transition"
+                    disabled={actioningId === testimonial.id}
+                    className="h-10 w-10 rounded-xl border border-bree-border flex items-center justify-center hover:bg-red-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Trash2 className="w-4 h-4 text-red-500" />
                   </button>
@@ -448,6 +540,34 @@ export default function TestimonialsAdmin() {
             </div>
           ))}
         </div>
+
+        {/* Pagination */}
+        {Math.ceil(total / PAGE_SIZE) > 1 && (
+          <div className="flex items-center justify-between mt-8">
+            <p className="text-sm text-bree-text-secondary">
+              Page {page} of {Math.max(1, Math.ceil(total / PAGE_SIZE))} ·{" "}
+              {total} testimonial{total === 1 ? "" : "s"}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1 || loading}
+                className="w-9 h-9 rounded-lg border border-bree-border flex items-center justify-center disabled:opacity-50"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() =>
+                  setPage((p) => Math.min(Math.ceil(total / PAGE_SIZE), p + 1))
+                }
+                disabled={page === Math.ceil(total / PAGE_SIZE) || loading}
+                className="w-9 h-9 rounded-lg border border-bree-border flex items-center justify-center disabled:opacity-50"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* VIEW MODAL */}
         {selectedTestimonial && (

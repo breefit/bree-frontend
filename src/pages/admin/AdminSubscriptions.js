@@ -27,6 +27,7 @@ import {
   resumeAdminSubscription,
   cancelAdminSubscription,
 } from "@/services/adminSubscriptionService";
+import PackagePurchasesPanel from "@/components/admin/PackagePurchasesPanel";
 
 const PAGE_SIZE = 20;
 
@@ -180,9 +181,20 @@ const ConfirmModal = ({
   );
 };
 
+// FIX (ISSUE-012 — admin analytics blind to Model B): Model A (recurring
+// Razorpay subscriptions) and Model B (pay-once, ship-monthly packages)
+// are both live, distinct business models — this tab lets staff switch
+// between them instead of Model B being invisible everywhere. Model A's
+// existing table/state/handlers below are completely unchanged.
+const VIEW_MODELS = [
+  { key: "A", label: "Subscriptions" },
+  { key: "B", label: "Package Purchases" },
+];
+
 const AdminSubscriptions = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [viewModel, setViewModel] = useState("A");
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -287,6 +299,45 @@ const AdminSubscriptions = () => {
 
   const pageCount = Math.ceil(total / PAGE_SIZE);
 
+  // Shared between both Model A and Model B branches below.
+  const modelTabBar = (
+    <div className="flex gap-2 bg-white border border-bree-border rounded-2xl p-1.5 w-max mb-6">
+      {VIEW_MODELS.map((tab) => (
+        <button
+          key={tab.key}
+          onClick={() => setViewModel(tab.key)}
+          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+            viewModel === tab.key
+              ? "bg-bree-primary text-white"
+              : "text-bree-text-secondary hover:text-bree-primary"
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (viewModel === "B") {
+    return (
+      <AdminLayout>
+        <div className="p-4 md:p-8 bg-bree-bg min-h-screen">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-bree-text-primary">
+              Subscriptions
+            </h1>
+            <p className="text-bree-text-secondary mt-1">
+              View recurring subscriptions and pay-once package purchases
+              across BREE.
+            </p>
+          </div>
+          {modelTabBar}
+          <PackagePurchasesPanel />
+        </div>
+      </AdminLayout>
+    );
+  }
+
   return (
     <AdminLayout>
       <div className="p-4 md:p-8 bg-bree-bg min-h-screen">
@@ -315,6 +366,8 @@ const AdminSubscriptions = () => {
             </Button>
           </div>
         </div>
+
+        {modelTabBar}
 
         <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4 mb-6">
           <div className="flex items-center gap-3 w-full">

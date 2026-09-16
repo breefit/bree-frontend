@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getAccessToken, getAdminToken } from "./tokenStore";
 
 const normalizeBaseUrl = (value) => {
   if (!value) return "";
@@ -21,24 +22,25 @@ axios.interceptors.request.use((config) => {
     const requestPath = getRequestPath(config.url);
 
     if (requestPath.startsWith("/api/admin")) {
-      const adminToken = localStorage.getItem("bree_admin_token");
+      const adminToken = getAdminToken();
       if (adminToken) {
         config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${adminToken}`;
       }
     } else {
-      // SAFARI FIX: user routes previously relied on the `auth_token` cookie
-      // alone (SameSite=None; Secure). Safari/WebKit has a well-known race
-      // where a cookie set by a cross-site XHR/fetch response (login,
-      // register, Google auth) is not always available to the very next
-      // request fired immediately after — even though the cookie itself is
-      // configured correctly. The backend's `auth`/`optionalAuth`
-      // middleware already accepts `cookieToken || bearerToken`
-      // (middleware/auth.js), so attaching the access token we already
-      // store in localStorage on login closes that race without any
-      // backend change: the request succeeds via the header even if the
-      // cookie hasn't "landed" yet in Safari's jar.
-      const userToken = localStorage.getItem("bree_access_token");
+      // SAFARI FIX (kept — see lib/tokenStore.js for why this exists and
+      // why it's now in-memory instead of localStorage): user routes
+      // previously relied on the `auth_token` cookie alone (SameSite=None;
+      // Secure). Safari/WebKit has a well-known race where a cookie set by
+      // a cross-site XHR/fetch response (login, register, Google auth) is
+      // not always available to the very next request fired immediately
+      // after — even though the cookie itself is configured correctly. The
+      // backend's `auth`/`optionalAuth` middleware already accepts
+      // `cookieToken || bearerToken` (middleware/auth.js), so attaching
+      // the access token closes that race without any backend change: the
+      // request succeeds via the header even if the cookie hasn't
+      // "landed" yet in Safari's jar.
+      const userToken = getAccessToken();
       if (userToken && !config.headers?.Authorization) {
         config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${userToken}`;

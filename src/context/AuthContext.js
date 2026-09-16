@@ -7,6 +7,7 @@ import {
   useRef,
 } from "react";
 import axios, { getApiErrorMessage } from "@/lib/api";
+import { setAccessToken, clearAccessToken } from "@/lib/tokenStore";
 import {
   firebaseAuth,
   googleAuthProvider,
@@ -22,7 +23,6 @@ import {
 import { toast } from "sonner";
 
 const AuthContext = createContext();
-const ACCESS_TOKEN_KEY = "bree_access_token";
 
 const normalizeOtpMobile = (mobile) => {
   const digits = String(mobile || "")
@@ -77,7 +77,7 @@ export const AuthProvider = ({ children }) => {
         }
         setUser(response.data);
         if (response.data?.accessToken) {
-          localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
+          setAccessToken(response.data.accessToken);
         }
         return response.data;
       } catch {
@@ -90,7 +90,7 @@ export const AuthProvider = ({ children }) => {
           console.info("[auth] verify finished: unauthenticated");
         }
         setUser(null);
-        localStorage.removeItem(ACCESS_TOKEN_KEY);
+        clearAccessToken();
         return null;
       } finally {
         setLoading(false);
@@ -129,7 +129,7 @@ export const AuthProvider = ({ children }) => {
         firebaseSignOut(firebaseAuth).catch(() => null);
       }
       setUser(null);
-      localStorage.removeItem(ACCESS_TOKEN_KEY);
+      clearAccessToken();
       broadcastAuthEvent("logout");
       toast.error("Your session has expired. Please log in again.");
       authExpiryHandledRef.current = false;
@@ -189,7 +189,7 @@ export const AuthProvider = ({ children }) => {
       });
       setUser(response.data);
       if (response.data?.accessToken) {
-        localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
+        setAccessToken(response.data.accessToken);
       }
       broadcastAuthEvent("login");
       toast.success(
@@ -243,7 +243,7 @@ export const AuthProvider = ({ children }) => {
 
       setUser(response.data);
       if (response.data?.accessToken) {
-        localStorage.setItem(ACCESS_TOKEN_KEY, response.data.accessToken);
+        setAccessToken(response.data.accessToken);
       }
       broadcastAuthEvent("login");
       toast.success("Login successful.");
@@ -280,7 +280,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     setUser(null);
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    clearAccessToken();
     broadcastAuthEvent("logout");
   };
 

@@ -1,14 +1,31 @@
 // craco.config.js
 const path = require("path");
 
-// CRA loads environment files after this config is evaluated. Load the
-// matching file here first so a development .env cannot override production
-// API variables during `craco build`.
-const dotenvFile =
-  process.env.NODE_ENV === "production" ? ".env.production" : ".env";
-require("dotenv").config({
-  path: path.resolve(__dirname, dotenvFile),
-});
+// CRA loads environment files after this config is evaluated. Pre-load them
+// here so a plain .env cannot override .env.production during `craco build`.
+//
+// FIX (Medium #28 — Phase 3): this used to force-load a single plain `.env`
+// for every non-production run (dev and test alike) BEFORE CRA's own
+// env.js got a chance to run. Since dotenv never overrides a process.env
+// key that's already set, that meant `.env.development` — which CRA's real
+// precedence ranks ABOVE plain `.env` — could never win for any key `.env`
+// also defined during `npm start`: a silent override footgun for local
+// dev, not just the production-build case this file's own comment
+// describes. Now replicates react-scripts/config/env.js's exact file list
+// and precedence order (highest priority first; `.env.local` excluded for
+// NODE_ENV=test, matching CRA's own convention that tests should produce
+// the same result on every machine) instead of a single hardcoded file.
+const nodeEnv = process.env.NODE_ENV || "development";
+const dotenvFiles = [
+  `.env.${nodeEnv}.local`,
+  nodeEnv !== "test" && ".env.local",
+  `.env.${nodeEnv}`,
+  ".env",
+].filter(Boolean);
+
+for (const file of dotenvFiles) {
+  require("dotenv").config({ path: path.resolve(__dirname, file) });
+}
 
 // Check if we're in development/preview mode (not production build)
 // Craco sets NODE_ENV=development for start, NODE_ENV=production for build
@@ -90,6 +107,21 @@ webpackConfig.devServer = (devServerConfig) => {
   }
 
   return devServerConfig;
+};
+
+// FIX (ISSUE-005 — frontend behavioral test coverage): `craco test` (Jest)
+// never had the `@` -> `src/` alias webpack already resolves for the dev
+// server/build, so no test could import a component that uses a `@/...`
+// import. Scoped to the Jest config only — does not touch webpack/dev
+// server/build behavior at all.
+webpackConfig.jest = {
+  configure: (jestConfig) => {
+    jestConfig.moduleNameMapper = {
+      ...jestConfig.moduleNameMapper,
+      "^@/(.*)$": path.resolve(__dirname, "src") + "/$1",
+    };
+    return jestConfig;
+  },
 };
 
 // Wrap with visual edits (automatically adds babel plugin, dev server, and overlay in dev mode)

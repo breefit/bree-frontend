@@ -165,8 +165,16 @@ export const CartProvider = ({ children }) => {
       }
       return { anyChange: false, items: [] };
     } catch (err) {
+      // FIX (Medium #31 — Phase 3): this used to return the exact same
+      // shape as a successful no-op sync ({anyChange:false, items:[]}),
+      // making a failed price/availability revalidation indistinguishable
+      // from "nothing changed" to every caller — a customer could proceed
+      // through checkout on a cart that was never actually revalidated,
+      // with zero indication anything went wrong. `syncFailed` lets callers
+      // (Checkout.js) tell the two cases apart and warn the user; existing
+      // callers that don't check it see unchanged behavior.
       console.error("syncCart error:", err);
-      return { anyChange: false, items: [] };
+      return { anyChange: false, items: [], syncFailed: true };
     }
   }, []);
 

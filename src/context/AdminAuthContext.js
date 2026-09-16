@@ -7,9 +7,9 @@ import {
 } from "react";
 import axios from "@/lib/api";
 import { toast } from "sonner";
+import { setAdminToken, clearAdminToken } from "@/lib/tokenStore";
 
 const AdminAuthContext = createContext();
-const ADMIN_TOKEN_KEY = "bree_admin_token";
 
 export const useAdminAuth = () => {
   const context = useContext(AdminAuthContext);
@@ -32,21 +32,24 @@ export const AdminAuthProvider = ({ children }) => {
       return data.admin || null;
     } catch (error) {
       setAdmin(null);
-      localStorage.removeItem(ADMIN_TOKEN_KEY);
+      clearAdminToken();
       return null;
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // FIX (ISSUE-008 — admin token must not live in localStorage): this used
+  // to gate the mount-time check on a stored localStorage token ("avoids
+  // 401 spam on public pages"), which relied on that token surviving a
+  // reload. The token now lives in memory only (lib/tokenStore.js) and is
+  // lost on reload by design, so this always re-verifies via the httpOnly
+  // admin cookie instead — the same pattern AuthContext.js's checkAuth()
+  // already uses correctly. The admin app has no real "public" pages other
+  // than the login screen itself, where a single expected 401 is harmless
+  // (identical to how the customer-facing app already behaves).
   useEffect(() => {
-    // Only call verifyAdmin if we have a stored token — avoids 401 spam on public pages
-    const stored = localStorage.getItem(ADMIN_TOKEN_KEY);
-    if (stored) {
-      verifyAdmin();
-    } else {
-      setLoading(false);
-    }
+    verifyAdmin();
   }, [verifyAdmin]);
 
   const loginAdmin = async (email, password) => {
@@ -57,9 +60,7 @@ export const AdminAuthProvider = ({ children }) => {
         password,
       });
       setAdmin(data.admin || null);
-
-      // Store actual JWT token
-      localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
+      setAdminToken(data.token);
 
       return data.admin;
     } catch (error) {
@@ -78,7 +79,7 @@ export const AdminAuthProvider = ({ children }) => {
       );
     } finally {
       setAdmin(null);
-      localStorage.removeItem(ADMIN_TOKEN_KEY);
+      clearAdminToken();
     }
   };
 

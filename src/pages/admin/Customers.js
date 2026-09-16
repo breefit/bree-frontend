@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -12,6 +12,8 @@ import {
   MoreVertical,
   ShoppingBag,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
@@ -22,29 +24,50 @@ import axios from "@/lib/api";
 
 const API = "/api/admin";
 const AUTH = () => ({ withCredentials: true });
+// FIX (ISSUE-023 — capped at 20, no pagination): the backend
+// (getCustomers) already supported real server-side search + page/limit +
+// total all along — this page just never sent those params or offered any
+// way to reach page 2, so anything beyond the first 20 customers was
+// invisible and unsearchable. Matches the server-side pagination pattern
+// already proven correct in Orders.js/AdminSubscriptions.js/BulkOrders.js.
+const PAGE_SIZE = 20;
 
 const Customers = () => {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
   const handleSearch = useCallback(() => {
+    setPage(1);
     setSearchQuery(searchInput.trim());
   }, [searchInput]);
 
   const clearSearch = useCallback(() => {
     setSearchInput("");
+    setPage(1);
     setSearchQuery("");
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchCustomers = async () => {
       setLoading(true);
 
       try {
-        const res = await axios.get(`${API}/customers`, AUTH());
+        const res = await axios.get(`${API}/customers`, {
+          ...AUTH(),
+          params: {
+            page,
+            limit: PAGE_SIZE,
+            search: searchQuery || undefined,
+          },
+        });
+        if (cancelled) return;
         const normalized = (res.data?.customers || []).map((customer) => ({
           ...customer,
           orders: Number(customer.order_count || 0),
@@ -58,31 +81,34 @@ const Customers = () => {
           status: Number(customer.order_count || 0) > 0 ? "Active" : "Inactive",
         }));
         setCustomers(normalized);
+        setTotal(Number(res.data?.total || 0));
       } catch {
-        setCustomers([]);
+        if (!cancelled) {
+          setCustomers([]);
+          setTotal(0);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchCustomers();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [page, searchQuery]);
 
-  // SEARCH LOGIC
-  const filteredCustomers = useMemo(() => {
-    return customers.filter((customer) => {
-      const query = searchQuery.toLowerCase();
-      return (
-        customer.name?.toLowerCase().includes(query) ||
-        customer.email?.toLowerCase().includes(query) ||
-        customer.phone?.includes(searchQuery) ||
-        customer.customer_number?.toLowerCase().includes(query)
-      );
-    });
-  }, [customers, searchQuery]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // STATS
-  const totalCustomers = customers.length;
+  // This page (server-paginated) — the current page's rows, unfiltered
+  // further on the client.
+  const filteredCustomers = customers;
+
+  // STATS — reflect the true total across all pages, not just this page's
+  // rows. Active/orders/revenue are necessarily figures for the loaded
+  // page only, since computing them across the full filtered set would
+  // require a dedicated aggregate endpoint this page doesn't have.
+  const totalCustomers = total;
 
   const activeCustomers = customers.filter((c) => c.status === "Active").length;
 
@@ -328,6 +354,34 @@ const Customers = () => {
             ))}
           </AnimatePresence>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-8">
+            <p className="text-sm text-bree-text-secondary">
+              Page {page} of {totalPages} · {total} customer
+              {total === 1 ? "" : "s"}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1 || loading}
+                className="w-9 h-9 rounded-lg border-bree-border p-0"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages || loading}
+                className="w-9 h-9 rounded-lg border-bree-border p-0"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </AdminLayout>
   );
