@@ -6,7 +6,9 @@ import { buildReturnRefundTimeline } from "@/lib/returnRefundTimeline";
 const formatTimestampSafe = (timestamp) => {
   if (!timestamp) return "-";
   const parsed = new Date(timestamp);
-  return !isNaN(parsed) ? parsed.toLocaleString("en-IN") : "-";
+  return !isNaN(parsed)
+    ? parsed.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+    : "-";
 };
 
 const formatRupees = (amount) => {
@@ -31,7 +33,7 @@ const ReturnRefundTimeline = ({ order }) => {
   const timeline = buildReturnRefundTimeline(order);
   if (!timeline) return null;
 
-  const { steps, refund, reverseShipment } = timeline;
+  const { steps, refund, reverseShipment, tracking } = timeline;
   const refundAmountLabel = formatRupees(refund.amount);
 
   return (
@@ -67,7 +69,9 @@ const ReturnRefundTimeline = ({ order }) => {
                 ? "In progress"
                 : step.state === "failed"
                   ? "Not approved"
-                  : "Pending";
+                  : step.state === "not_reported"
+                    ? "Not reported by courier"
+                    : "Pending";
 
           return (
             <div key={step.key} className="flex items-start gap-4 min-w-0">
@@ -125,7 +129,9 @@ const ReturnRefundTimeline = ({ order }) => {
                     {formatTimestampSafe(step.timestamp)}
                   </p>
                 </div>
-                <p className={`text-xs mt-1 ${textClass}`}>{subLabel}</p>
+                <p className={`text-xs mt-1 ${textClass}`}>
+                  {step.detail ? `${subLabel} · ${step.detail}` : subLabel}
+                </p>
               </div>
             </div>
           );
@@ -159,6 +165,14 @@ const ReturnRefundTimeline = ({ order }) => {
             {reverseShipment.awb && (
               <p className="break-all">
                 Courier: Delhivery &middot; AWB: {reverseShipment.awb}
+              </p>
+            )}
+            {tracking.label && (
+              <p className="text-bree-text-secondary">
+                Courier status: {tracking.label}
+                {tracking.updatedAt
+                  ? ` (updated ${formatTimestampSafe(tracking.updatedAt)})`
+                  : ""}
               </p>
             )}
             {reverseShipment.trackingUrl && (

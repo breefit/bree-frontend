@@ -1,33 +1,58 @@
-// Maps the EXISTING backend return/refund state (return_status /
-// inspection_status / refund_status — no invented statuses, no new DB
-// fields) onto a customer-friendly timeline for the Order Tracking page.
+// The ONE return/refund timeline state machine — used by both the admin
+// order details (pages/admin/Orders.js) and the customer tracking page
+// (components/orders/ReturnRefundTimeline.js), from the same backend fields
+// both APIs return. No invented statuses, no fabricated timestamps.
 //
-// Design notes (see docs/Return_Order_Flow.md and the return-flow audit
-// for the underlying state machine):
-// - return_status: null -> approved -> reverse_shipment_created ->
-//   pickup_scheduled (OPTIONAL) -> returned, or null -> rejected.
-// - inspection_status: null -> pending -> approved, or -> rejected
-//   (terminal, permanently blocks refund).
-// - refund_status: null -> approved -> initiated -> completed, or
-//   -> rejected (blocked only once already "completed").
+// Every step is marked reached only by its own evidence:
+//   Return Requested      return_status set                 return_requested_at
+//   Return Approved       return_status set (not rejected)  return_approved_at
+//   Return Shipment       reverse_awb / return_status       reverse_shipment_created_at
+//   Pickup Scheduled      Delhivery PP/Scheduled or later   reverse_pickup_scheduled_at
+//                         (legacy: pickup request id)
+//   Picked Up             Delhivery PU/* or DL/DTO          reverse_picked_up_at
+//   In Transit            Delhivery PU/* or DL/DTO          — (no own timestamp)
+//   Return Received       return_status = returned          returned_at (+ returned_source)
+//   Quality Check         inspection_status                 inspection_completed_at
+//   Refund Approved       refund_status                     refund_approved_at
+//   Refund Processing     refund_status initiated/completed —
+//   Refund Completed      refund_status = completed         refund_completed_at
 //
-// "Current" step = whichever milestone the backend data says is the LAST
-// one actually reached — matching the same visual convention already
-// used by components/orders/TrackingTimeline.js for the normal order
-// timeline (the step matching the current value is highlighted, not
-// marked done; steps before it are done; steps after are pending).
+// A later Delhivery state is evidence for the earlier courier steps it
+// implies (Delhivery cannot deliver a parcel to BREE it never picked up).
+// A step that was never evidenced while a later step was (e.g. a manually
+// confirmed receipt with no Delhivery pickup scan) is "not_reported" —
+// never shown as done.
 //
-// A rejection at any stage truncates the list right after the failure
-// marker — no future step is ever shown as pending once a branch has
-// terminally failed (per the audit's explicit requirement).
+// States: done | current (last reached step) | not_reported | pending | failed.
 
-const REACHED_SHIPMENT = ["reverse_shipment_created", "pickup_scheduled", "returned"];
+const PICKUP_SCHEDULED_EVIDENCE = [
+  "pickup_scheduled",
+  "out_for_pickup",
+  "in_transit",
+  "delivered_to_bree",
+];
+const PICKED_UP_EVIDENCE = ["in_transit", "delivered_to_bree"];
+const SHIPMENT_STATUSES = ["reverse_shipment_created", "pickup_scheduled", "returned"];
+
+export const REVERSE_TRACKING_LABELS = {
+  pickup_requested: "Pickup requested",
+  pickup_scheduled: "Pickup scheduled",
+  out_for_pickup: "Courier out for pickup",
+  in_transit: "In transit to BREE",
+  delivered_to_bree: "Delivered to BREE",
+  cancelled: "Pickup cancelled by Delhivery",
+  unknown: "Status update received",
+};
+
+export const RETURNED_SOURCE_LABELS = {
+  delhivery: "Confirmed by Delhivery",
+  manual_override: "Confirmed manually by BREE",
+};
 
 /**
- * @param {object} order - The order object returned by GET /api/orders/:id/tracking.
- * @returns {null|{variant: string, steps: Array, refund: object, reverseShipment: object}}
- *   null when there is no return in progress at all (return_status is falsy) —
- *   callers should fall back to the existing "Returns & Support" panel in that case.
+ * @param {object} order - Order from GET /api/orders/:id/tracking or the admin order API.
+ * @returns {null|{variant: string, steps: Array, refund: object, reverseShipment: object, tracking: object}}
+ *   null when there is no return at all (return_status is falsy).
  */
 export const buildReturnRefundTimeline = (order) => {
   if (!order || !order.return_status) return null;
@@ -36,16 +61,29 @@ export const buildReturnRefundTimeline = (order) => {
     return_status,
     return_requested_at,
     return_approved_at,
-    reverse_shipment_created_at,
-    reverse_pickup_request_id,
-    returned_at,
-    inspection_status,
-    refund_status,
-    refund_amount,
-    refund_completed_at,
     reverse_awb,
     reverse_tracking_url,
+    reverse_shipment_created_at,
+    reverse_shipment_type,
+    reverse_pickup_request_id,
+    reverse_tracking_status,
+    reverse_tracking_raw_status,
+    reverse_tracking_updated_at,
+    reverse_pickup_scheduled_at,
+    reverse_picked_up_at,
+    reverse_delivered_at,
+    returned_at,
+    returned_source,
+    inspection_status,
+    inspection_completed_at,
+    refund_status,
+    refund_amount,
+    refund_approved_at,
+    refund_completed_at,
   } = order;
+
+  const isRvp = reverse_shipment_type === "rvp";
+  const trackingStatus = reverse_tracking_status || null;
 
   const reverseShipment = {
     awb: reverse_awb || null,
@@ -55,125 +93,138 @@ export const buildReturnRefundTimeline = (order) => {
     amount: refund_amount != null ? Number(refund_amount) : null,
     status: refund_status || null,
   };
+  const tracking = {
+    status: trackingStatus,
+    label: trackingStatus ? REVERSE_TRACKING_LABELS[trackingStatus] || trackingStatus : null,
+    rawStatus: reverse_tracking_raw_status || null,
+    updatedAt: reverse_tracking_updated_at || null,
+    // A return shipment created before the reverse-pickup fix: a forward
+    // Prepaid shipment whose tracking cannot prove a customer pickup.
+    legacyShipment: Boolean(reverse_awb) && !isRvp,
+    cancelled: trackingStatus === "cancelled",
+  };
 
-  // ── Branch 1: the return request itself was rejected — no shipment,
-  //    no inspection, no refund ever happened for this order. ───────────
   if (return_status === "rejected") {
     return {
       variant: "return_rejected",
       steps: [
-        {
-          key: "return_request",
-          label: "Return Request",
-          state: "done",
-          timestamp: return_requested_at || null,
-        },
-        {
-          key: "return_rejected",
-          label: "Return Rejected",
-          state: "failed",
-          timestamp: return_approved_at || null,
-        },
+        { key: "return_request", label: "Return Request", state: "done", timestamp: return_requested_at || null },
+        { key: "return_rejected", label: "Return Rejected", state: "failed", timestamp: return_approved_at || null },
       ],
       refund,
       reverseShipment,
+      tracking,
     };
   }
 
-  // ── Return-side milestones (always at least "Return Approved" is done
-  //    here, since return_status is truthy and not "rejected"). ─────────
-  const pickupWasScheduled = Boolean(reverse_pickup_request_id);
-  const reachedShipment = REACHED_SHIPMENT.includes(return_status);
-  const reachedReturned = return_status === "returned";
-  // The optional pickup step is only ever shown if it genuinely happened,
-  // or if it's still a live possibility (shipment created, not yet
-  // returned) — an order that skipped straight from "shipment created" to
-  // "returned" never had this step, so it's omitted entirely rather than
-  // shown as a false "pending" placeholder for something that will never
-  // happen for this order.
-  const includePickupStep = pickupWasScheduled || (reachedShipment && !reachedReturned);
+  const courierEvidence = isRvp ? trackingStatus : null;
+  const delhiveryDelivered = isRvp && (courierEvidence === "delivered_to_bree" || Boolean(reverse_delivered_at));
+  const pickupScheduled =
+    Boolean(reverse_pickup_scheduled_at) ||
+    PICKUP_SCHEDULED_EVIDENCE.includes(courierEvidence) ||
+    delhiveryDelivered ||
+    (tracking.legacyShipment && Boolean(reverse_pickup_request_id));
+  const pickedUp =
+    Boolean(reverse_picked_up_at) || PICKED_UP_EVIDENCE.includes(courierEvidence) || delhiveryDelivered;
+  const returned = return_status === "returned";
 
-  const returnSteps = [
-    {
-      key: "return_approved",
-      label: "Return Approved",
-      reached: true,
-      timestamp: return_approved_at || null,
-    },
+  const milestones = [
+    { key: "return_requested", label: "Return Requested", reached: true, timestamp: return_requested_at || null },
+    { key: "return_approved", label: "Return Approved", reached: true, timestamp: return_approved_at || null },
     {
       key: "reverse_shipment_created",
       label: "Return Shipment Created",
-      reached: reachedShipment,
-      timestamp: reachedShipment ? reverse_shipment_created_at || null : null,
+      reached: Boolean(reverse_awb) || SHIPMENT_STATUSES.includes(return_status),
+      timestamp: reverse_shipment_created_at || null,
     },
-    ...(includePickupStep
-      ? [
-          {
-            key: "pickup_scheduled",
-            label: "Pickup Scheduled",
-            reached: pickupWasScheduled,
-            // No dedicated timestamp column exists for when a pickup was
-            // scheduled — never fabricate one.
-            timestamp: null,
-          },
-        ]
-      : []),
+    {
+      key: "pickup_scheduled",
+      label: tracking.legacyShipment ? "Pickup Requested (legacy)" : "Pickup Scheduled",
+      reached: pickupScheduled,
+      timestamp: reverse_pickup_scheduled_at || null,
+    },
+    { key: "picked_up", label: "Picked Up", reached: pickedUp, timestamp: reverse_picked_up_at || null },
+    { key: "in_transit", label: "In Transit", reached: pickedUp, timestamp: null },
     {
       key: "returned",
       label: "Return Received",
-      reached: reachedReturned,
-      timestamp: reachedReturned ? returned_at || null : null,
+      reached: returned,
+      timestamp: returned ? returned_at || null : null,
+      detail: returned ? RETURNED_SOURCE_LABELS[returned_source] || null : null,
     },
   ];
 
-  // ── Branch 2: quality check failed — the return itself completed
-  //    successfully, but no refund will ever follow for this order. ─────
+  const toStep = (m, state) => ({
+    key: m.key,
+    label: m.label,
+    state,
+    timestamp: m.timestamp,
+    ...(m.detail ? { detail: m.detail } : {}),
+  });
+
+  // States for a list of milestones: done/current by own evidence,
+  // not_reported for a gap before a later reached step, pending after.
+  const resolveStates = (list, { fullyComplete = false } = {}) => {
+    let last = -1;
+    list.forEach((m, i) => {
+      if (m.reached) last = i;
+    });
+    return list.map((m, i) => {
+      if (m.reached) {
+        return toStep(m, i === last && !fullyComplete ? "current" : "done");
+      }
+      return toStep(m, i < last ? "not_reported" : "pending");
+    });
+  };
+
+  // Delhivery cancelled the pickup before collecting the parcel.
+  if (tracking.cancelled && !returned) {
+    const upToPickup = milestones.slice(0, 4);
+    return {
+      variant: "pickup_cancelled",
+      steps: [
+        ...resolveStates(upToPickup, { fullyComplete: true }).map((s) =>
+          s.state === "pending" ? { ...s, state: "not_reported" } : s,
+        ),
+        { key: "pickup_cancelled", label: "Pickup Cancelled by Delhivery", state: "failed", timestamp: reverse_tracking_updated_at || null },
+      ],
+      refund,
+      reverseShipment,
+      tracking,
+    };
+  }
+
   if (inspection_status === "rejected") {
     return {
       variant: "inspection_rejected",
       steps: [
-        ...returnSteps.map((s) => ({
-          key: s.key,
-          label: s.label,
-          state: "done",
-          timestamp: s.timestamp,
-        })),
-        {
-          key: "inspection_rejected",
-          label: "Quality Check Failed",
-          state: "failed",
-          // No dedicated inspection timestamp column exists.
-          timestamp: null,
-        },
+        ...resolveStates(milestones, { fullyComplete: true }),
+        { key: "inspection_rejected", label: "Quality Check Failed", state: "failed", timestamp: inspection_completed_at || null },
       ],
       refund,
       reverseShipment,
+      tracking,
     };
   }
 
-  // ── Normal progressive milestones, extended through inspection/refund.
-  //    "reached" here means "at or past this milestone" — the LAST true
-  //    one is the current step; everything before is done, after is
-  //    pending. ─────────────────────────────────────────────────────────
-  const milestones = [
-    ...returnSteps,
+  const refundMilestones = [
     {
       key: "inspection_approved",
       label: "Quality Check Passed",
       reached: inspection_status === "approved",
-      timestamp: null, // no dedicated inspection timestamp column exists
+      timestamp: inspection_status === "approved" ? inspection_completed_at || null : null,
     },
     {
       key: "refund_approved",
       label: "Refund Approved",
       reached: ["approved", "initiated", "completed"].includes(refund_status),
-      timestamp: null, // no dedicated refund-approved timestamp column exists
+      timestamp: refund_approved_at || null,
     },
     {
       key: "refund_initiated",
       label: "Refund Processing",
       reached: ["initiated", "completed"].includes(refund_status),
-      timestamp: null, // no dedicated refund-initiated timestamp column exists
+      timestamp: null,
     },
     {
       key: "refund_completed",
@@ -183,65 +234,28 @@ export const buildReturnRefundTimeline = (order) => {
     },
   ];
 
-  // ── Branch 3: refund rejected — show whatever return/inspection
-  //    progress genuinely occurred, then stop. Refund milestones never
-  //    render as done just because they preceded the rejection — only
-  //    what the data actually shows as reached is marked done. ──────────
   if (refund_status === "rejected") {
-    const reachedOnly = milestones.filter(
-      (m) => !m.key.startsWith("refund_") && m.reached,
-    );
+    const reachedOnly = [...milestones, ...refundMilestones.slice(0, 1)];
     return {
       variant: "refund_rejected",
       steps: [
-        ...reachedOnly.map((m) => ({
-          key: m.key,
-          label: m.label,
-          state: "done",
-          timestamp: m.timestamp,
-        })),
-        {
-          key: "refund_rejected",
-          label: "Refund Rejected",
-          state: "failed",
-          timestamp: null, // no dedicated refund-rejected timestamp column exists
-        },
+        ...resolveStates(reachedOnly, { fullyComplete: true }).filter((s) => s.state !== "pending"),
+        { key: "refund_rejected", label: "Refund Rejected", state: "failed", timestamp: null },
       ],
       refund,
       reverseShipment,
+      tracking,
     };
   }
 
-  // ── Normal (non-rejected) path: find the last reached milestone. ──────
-  let lastReachedIndex = -1;
-  milestones.forEach((m, idx) => {
-    if (m.reached) lastReachedIndex = idx;
-  });
-
-  // The very last milestone (Refund Completed) is a true terminal state —
-  // once reached there is nothing left to wait for, so it renders as done
-  // (✓), not current/in-progress (●), unlike every earlier milestone
-  // where "current" correctly means "this just happened, the next step
-  // hasn't yet."
-  const isFullyComplete = lastReachedIndex === milestones.length - 1;
-
-  const steps = milestones.map((m, idx) => ({
-    key: m.key,
-    label: m.label,
-    state:
-      idx < lastReachedIndex || (idx === lastReachedIndex && isFullyComplete)
-        ? "done"
-        : idx === lastReachedIndex
-          ? "current"
-          : "pending",
-    timestamp: m.timestamp,
-  }));
-
+  const all = [...milestones, ...refundMilestones];
+  const fullyComplete = refund_status === "completed";
   return {
-    variant: isFullyComplete ? "completed" : "in_progress",
-    steps,
+    variant: fullyComplete ? "completed" : "in_progress",
+    steps: resolveStates(all, { fullyComplete }),
     refund,
     reverseShipment,
+    tracking,
   };
 };
 

@@ -25,6 +25,10 @@ import AdminLayout from "@/components/admin/AdminLayout";
 import axios from "@/lib/api";
 import { toast } from "sonner";
 import useOrdersSync from "@/hooks/useOrdersSync";
+import {
+  buildReturnRefundTimeline,
+  RETURNED_SOURCE_LABELS,
+} from "@/lib/returnRefundTimeline";
 
 const API = "/api/admin";
 const AUTH = () => ({ withCredentials: true });
@@ -160,6 +164,15 @@ const QC_REJECT_REASONS = [
   "Other",
 ];
 
+// Manual "mark received" override — only used when Delhivery has NOT
+// confirmed the reverse pickup was delivered to BREE (DL/DTO).
+const OVERRIDE_RETURN_REASONS = [
+  "Parcel physically received at BREE warehouse",
+  "Legacy return shipment (created before reverse-pickup fix)",
+  "Delhivery tracking unavailable / delayed",
+  "Other",
+];
+
 // FIX (Return/Refund audit — state machine mismatch, requirement 9): the
 // frontend previously modeled return_status as a single sequence that
 // included inspection_completed/refund_approved/refund_completed —
@@ -210,15 +223,6 @@ const REFUND_STATUS_LABELS = {
   rejected: "Rejected",
 };
 
-// Linear return_status progression (rejected is a terminal side-state, not
-// part of the line) — used to compute how far along the return timeline is.
-const RETURN_STATUS_ORDER = [
-  "approved",
-  "reverse_shipment_created",
-  "pickup_scheduled",
-  "returned",
-];
-
 const ReturnStatusBadge = ({ status }) => {
   if (!status) return null;
   return (
@@ -246,18 +250,10 @@ const RETURN_CONFIRM_COPY = {
     loadingLabel: "Creating...",
     colorClass: "bg-blue-600 hover:bg-blue-700 text-white",
   },
-  schedule_pickup: {
-    title: "Schedule Reverse Pickup",
-    description:
-      "This schedules a reverse pickup with Delhivery for this return and cannot be undone. Continue?",
-    confirmLabel: "Schedule Pickup",
-    loadingLabel: "Scheduling...",
-    colorClass: "bg-teal-600 hover:bg-teal-700 text-white",
-  },
   mark_returned: {
     title: "Mark Returned",
     description:
-      "This marks the item as returned and received back into inventory and cannot be undone. Continue?",
+      "Delhivery has confirmed this return was delivered to BREE. This records it as received and starts Quality Check. Continue?",
     confirmLabel: "Mark Returned",
     loadingLabel: "Updating...",
     colorClass: "bg-purple-600 hover:bg-purple-700 text-white",
@@ -316,6 +312,14 @@ const RETURN_REASON_MODAL_COPY = {
     confirmLabel: "Reject Refund",
     loadingLabel: "Rejecting...",
     colorClass: "bg-red-600 hover:bg-red-700 text-white",
+  },
+  // Manual override — Delhivery has not confirmed delivery to BREE.
+  override_returned: {
+    title: "Manual Override: Mark Return Received",
+    reasonOptions: OVERRIDE_RETURN_REASONS,
+    confirmLabel: "Record Manual Override",
+    loadingLabel: "Updating...",
+    colorClass: "bg-purple-600 hover:bg-purple-700 text-white",
   },
   // Requirement 10 — QC fail.
   reject_inspection: {
@@ -666,7 +670,6 @@ export const OrderModal = ({
   onApproveReturn,
   onRejectReturn,
   onCreateReverseShipment,
-  onScheduleReversePickup,
   onMarkReturned,
   onApproveInspection,
   onRejectInspection,
@@ -844,6 +847,14 @@ export const OrderModal = ({
 
   // ===== Added: Return Management =====
   const returnStatus = order.return_status || null;
+  const returnTimeline = buildReturnRefundTimeline(order);
+  const awaitingReturnReceipt = [
+    "reverse_shipment_created",
+    "pickup_scheduled",
+  ].includes(returnStatus);
+  const delhiveryConfirmedReceipt =
+    order.reverse_shipment_type === "rvp" &&
+    order.reverse_tracking_status === "delivered_to_bree";
   const inspectionStatus = order.inspection_status || null;
   const refundStatus = order.refund_status || null;
   const showReturnSection = orderStatus === "delivered";
@@ -913,6 +924,8 @@ export const OrderModal = ({
         await onRejectRefund(order.id, payload);
       } else if (reasonModal === "reject_inspection") {
         await onRejectInspection(order.id, payload);
+      } else if (reasonModal === "override_returned") {
+        await onMarkReturned(order.id, { override: true, ...payload });
       }
       closeReasonModal();
     } catch (err) {
@@ -930,8 +943,6 @@ export const OrderModal = ({
     try {
       if (confirmModal === "create_reverse_shipment") {
         await onCreateReverseShipment(order.id);
-      } else if (confirmModal === "schedule_pickup") {
-        await onScheduleReversePickup(order.id);
       } else if (confirmModal === "mark_returned") {
         await onMarkReturned(order.id);
       } else if (confirmModal === "approve_inspection") {
@@ -1683,6 +1694,46 @@ export const OrderModal = ({
                         </div>
                       )}
                       {/* ===== End Modified ===== */}
+                      {order.reverse_awb && (
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary flex-shrink-0">
+                            Delhivery Return Status
+                          </p>
+                          <p className="text-sm font-medium text-bree-text-primary text-right">
+                            {returnTimeline?.tracking?.label || "Not yet reported"}
+                            {order.reverse_tracking_raw_status
+                              ? ` (${order.reverse_tracking_raw_status})`
+                              : ""}
+                            {order.reverse_tracking_updated_at && (
+                              <span className="block text-[10px] text-bree-text-secondary">
+                                checked{" "}
+                                {new Date(order.reverse_tracking_updated_at).toLocaleString("en-IN", {
+                                  timeZone: "Asia/Kolkata",
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                })}
+                              </span>
+                            )}
+                            {Number(order.reverse_tracking_failure_count) > 0 && (
+                              <span className="block text-[10px] text-amber-700">
+                                last {order.reverse_tracking_failure_count} tracking
+                                check(s) failed — will retry
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      )}
+                      {order.returned_source && (
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary flex-shrink-0">
+                            Received Confirmation
+                          </p>
+                          <p className="text-sm font-medium text-bree-text-primary text-right">
+                            {RETURNED_SOURCE_LABELS[order.returned_source] ||
+                              order.returned_source}
+                          </p>
+                        </div>
+                      )}
                       {order.returned_at && (
                         <div className="flex items-start justify-between gap-3">
                           <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary flex-shrink-0">
@@ -1794,83 +1845,69 @@ export const OrderModal = ({
                         <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary mb-2">
                           Return Timeline
                         </p>
+                        {returnTimeline?.tracking?.legacyShipment && (
+                          <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2">
+                            This return shipment was created before the
+                            reverse-pickup fix (as a forward Prepaid shipment),
+                            so its Delhivery tracking cannot confirm a customer
+                            pickup. Verify in Delhivery and use the manual
+                            override once the parcel is physically received.
+                          </p>
+                        )}
                         <div className="space-y-2">
-                          {[
-                            {
-                              key: "requested",
-                              label: "Return Requested",
-                              done: Boolean(returnStatus),
-                            },
-                            {
-                              key: "approved",
-                              label: "Approved",
-                              done:
-                                RETURN_STATUS_ORDER.indexOf(returnStatus) >=
-                                RETURN_STATUS_ORDER.indexOf("approved"),
-                            },
-                            {
-                              key: "reverse_shipment_created",
-                              label: "Reverse Shipment Created",
-                              done:
-                                RETURN_STATUS_ORDER.indexOf(returnStatus) >=
-                                RETURN_STATUS_ORDER.indexOf(
-                                  "reverse_shipment_created",
-                                ),
-                            },
-                            {
-                              key: "pickup_scheduled",
-                              label: "Pickup Scheduled",
-                              done:
-                                RETURN_STATUS_ORDER.indexOf(returnStatus) >=
-                                RETURN_STATUS_ORDER.indexOf("pickup_scheduled"),
-                            },
-                            {
-                              key: "returned",
-                              label: "Returned",
-                              done:
-                                RETURN_STATUS_ORDER.indexOf(returnStatus) >=
-                                RETURN_STATUS_ORDER.indexOf("returned"),
-                            },
-                            {
-                              key: "inspection",
-                              label: "Quality Check",
-                              done: inspectionStatus === "approved",
-                            },
-                            {
-                              key: "refund_approved",
-                              label: "Refund Approved",
-                              done:
-                                Boolean(refundStatus) &&
-                                refundStatus !== "rejected",
-                            },
-                            {
-                              key: "refund_completed",
-                              label: "Refund Completed",
-                              done: refundStatus === "completed",
-                            },
-                          ].map(({ key, label, done }, i) => (
-                            <div key={key} className="flex items-center gap-3">
-                              <div
-                                className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold
-                                ${
-                                  done
-                                    ? "bg-green-500 text-white"
-                                    : "bg-white border-2 border-bree-border text-bree-text-secondary"
-                                }`}
-                              >
-                                {done ? "✓" : i + 1}
+                          {(returnTimeline?.steps || []).map((step, i) => {
+                            const done = step.state === "done";
+                            const current = step.state === "current";
+                            const failed = step.state === "failed";
+                            const notReported = step.state === "not_reported";
+                            return (
+                              <div key={step.key} className="flex items-center gap-3">
+                                <div
+                                  className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold
+                                  ${
+                                    done || current
+                                      ? "bg-green-500 text-white"
+                                      : failed
+                                        ? "bg-red-500 text-white"
+                                        : "bg-white border-2 border-bree-border text-bree-text-secondary"
+                                  }`}
+                                >
+                                  {done || current ? "✓" : failed ? "✕" : i + 1}
+                                </div>
+                                <div className="min-w-0">
+                                  <p
+                                    className={`text-xs font-medium ${
+                                      done || current
+                                        ? "text-bree-text-primary"
+                                        : failed
+                                          ? "text-red-700"
+                                          : "text-bree-text-secondary"
+                                    }`}
+                                  >
+                                    {step.label}
+                                    {notReported && (
+                                      <span className="ml-1 text-[10px] text-amber-700">
+                                        (not reported by Delhivery)
+                                      </span>
+                                    )}
+                                  </p>
+                                  {(step.timestamp || step.detail) && (
+                                    <p className="text-[10px] text-bree-text-secondary">
+                                      {step.timestamp
+                                        ? new Date(step.timestamp).toLocaleString("en-IN", {
+                                            timeZone: "Asia/Kolkata",
+                                            dateStyle: "medium",
+                                            timeStyle: "short",
+                                          })
+                                        : ""}
+                                      {step.timestamp && step.detail ? " · " : ""}
+                                      {step.detail || ""}
+                                    </p>
+                                  )}
+                                </div>
                               </div>
-                              <p
-                                className={`text-xs font-medium ${
-                                  done
-                                    ? "text-bree-text-primary"
-                                    : "text-bree-text-secondary"
-                                }`}
-                              >
-                                {label}
-                              </p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1900,21 +1937,28 @@ export const OrderModal = ({
                           Return Order
                         </Button>
                       )}
-                      {returnStatus === "reverse_shipment_created" && (
-                        <Button
-                          onClick={() => setConfirmModal("schedule_pickup")}
-                          className="bg-teal-600 hover:bg-teal-700 text-white"
-                        >
-                          <PackageCheck className="w-4 h-4 mr-2" />
-                          Schedule Reverse Pickup
-                        </Button>
-                      )}
-                      {returnStatus === "pickup_scheduled" && (
+                      {/* FIX (return timeline not synchronized with
+                        Delhivery): no "Schedule Reverse Pickup" — Delhivery
+                        schedules reverse pickups itself; progress now comes
+                        from reverse tracking. "Mark Returned" is a plain
+                        confirmation only once Delhivery reported DL/DTO;
+                        otherwise it is an explicit, audited manual override
+                        (the backend enforces the same rule). */}
+                      {awaitingReturnReceipt && delhiveryConfirmedReceipt && (
                         <Button
                           onClick={() => setConfirmModal("mark_returned")}
                           className="bg-purple-600 hover:bg-purple-700 text-white"
                         >
                           Mark Returned
+                        </Button>
+                      )}
+                      {awaitingReturnReceipt && !delhiveryConfirmedReceipt && (
+                        <Button
+                          variant="outline"
+                          onClick={() => setReasonModal("override_returned")}
+                          className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                        >
+                          Manual Override: Mark Received
                         </Button>
                       )}
 
@@ -2706,38 +2750,13 @@ const Orders = () => {
     [refetchOrderAndList],
   );
 
-  // ── Return: schedule reverse pickup ────────────────────────────────────────
-  const handleScheduleReversePickup = useCallback(
-    async (orderId) => {
-      try {
-        const { data } = await axios.patch(
-          `${API}/orders/${orderId}/return/schedule-pickup`,
-          {},
-          AUTH(),
-        );
-        await refetchOrderAndList(orderId);
-        toast.success(
-          data?.message || "Reverse pickup scheduled successfully.",
-        );
-      } catch (err) {
-        const backendMessage =
-          err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          "Failed to schedule reverse pickup";
-        toast.error(backendMessage);
-        throw err;
-      }
-    },
-    [refetchOrderAndList],
-  );
-
   // ── Return: mark order returned ────────────────────────────────────────────
   const handleMarkReturned = useCallback(
-    async (orderId) => {
+    async (orderId, payload = {}) => {
       try {
         const { data } = await axios.patch(
           `${API}/orders/${orderId}/return/mark-returned`,
-          {},
+          payload,
           AUTH(),
         );
         await refetchOrderAndList(orderId);
@@ -3339,7 +3358,6 @@ const Orders = () => {
             onApproveReturn={handleApproveReturn}
             onRejectReturn={handleRejectReturn}
             onCreateReverseShipment={handleCreateReverseShipment}
-            onScheduleReversePickup={handleScheduleReversePickup}
             onMarkReturned={handleMarkReturned}
             onApproveInspection={handleApproveInspection}
             onRejectInspection={handleRejectInspection}
