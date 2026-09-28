@@ -44,6 +44,36 @@ export const REVERSE_TRACKING_LABELS = {
   unknown: "Status update received",
 };
 
+// Delhivery's public tracking page. "/track/package/<awb>" redirects here.
+export const DELHIVERY_PUBLIC_TRACKING_BASE = "https://www.delhivery.com/track-v2/package/";
+// The backend's old default tracking base (tracking.delhivery.com) has no DNS
+// record, so every link stored with it is dead. Such rows (e.g. the legacy
+// BREE-100018 return) are rebuilt from the AWB at render time — the stored
+// DB value is never rewritten.
+const DEAD_TRACKING_HOSTS = ["tracking.delhivery.com"];
+
+/**
+ * Customer-safe Delhivery tracking link for an AWB: the stored URL when it is
+ * a usable http(s) link, otherwise one built from the AWB, otherwise null.
+ */
+export const resolveDelhiveryTrackingUrl = (awb, storedUrl) => {
+  if (storedUrl) {
+    try {
+      const url = new URL(storedUrl);
+      if (
+        (url.protocol === "https:" || url.protocol === "http:") &&
+        !DEAD_TRACKING_HOSTS.includes(url.hostname.toLowerCase())
+      ) {
+        return storedUrl;
+      }
+    } catch {
+      // Not a parseable URL — fall through to the AWB.
+    }
+  }
+  const cleanAwb = String(awb || "").trim();
+  return cleanAwb ? `${DELHIVERY_PUBLIC_TRACKING_BASE}${encodeURIComponent(cleanAwb)}` : null;
+};
+
 export const RETURNED_SOURCE_LABELS = {
   delhivery: "Confirmed by Delhivery",
   manual_override: "Confirmed manually by BREE",
@@ -87,7 +117,7 @@ export const buildReturnRefundTimeline = (order) => {
 
   const reverseShipment = {
     awb: reverse_awb || null,
-    trackingUrl: reverse_tracking_url || null,
+    trackingUrl: resolveDelhiveryTrackingUrl(reverse_awb, reverse_tracking_url),
   };
   const refund = {
     amount: refund_amount != null ? Number(refund_amount) : null,

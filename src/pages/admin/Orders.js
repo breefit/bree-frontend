@@ -1667,15 +1667,15 @@ export const OrderModal = ({
                           </p>
                         </div>
                       )}
-                      {order.reverse_tracking_url && (
+                      {returnTimeline?.reverseShipment?.trackingUrl && (
                         <div className="flex items-start justify-between gap-3">
                           <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary flex-shrink-0">
                             Reverse Tracking URL
                           </p>
                           <a
-                            href={order.reverse_tracking_url}
+                            href={returnTimeline.reverseShipment.trackingUrl}
                             target="_blank"
-                            rel="noreferrer"
+                            rel="noopener noreferrer"
                             className="text-sm font-medium text-bree-primary underline text-right break-all"
                           >
                             Track
