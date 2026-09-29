@@ -8,6 +8,7 @@ import {
 } from "react";
 import axios, { getApiErrorMessage } from "@/lib/api";
 import { setAccessToken, clearAccessToken } from "@/lib/tokenStore";
+import { refreshSocketAuth } from "@/lib/socket";
 import {
   firebaseAuth,
   googleAuthProvider,
@@ -42,6 +43,14 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+
+  // FIX (Socket.IO security audit): the server assigns order-event rooms
+  // at handshake time from the session, so the socket re-handshakes
+  // whenever the signed-in identity changes (login, logout, session
+  // restored on reload). No-op until a page has opened the socket.
+  useEffect(() => {
+    refreshSocketAuth();
+  }, [user?.id]);
   const [loading, setLoading] = useState(true);
   const [authenticating, setAuthenticating] = useState(false);
   const AUTH_EVENT_KEY = "bree-auth-event";

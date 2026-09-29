@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 
 import AdminLayout from "@/components/admin/AdminLayout";
 
@@ -21,6 +21,64 @@ const JOURNEY_LABEL = {
   4: "Annual",
 };
 
+// Older rows/responses without the field predate the column (DEFAULT 1).
+const isProductVisible = (product) =>
+  product.is_visible === undefined ||
+  product.is_visible === null ||
+  product.is_visible === true ||
+  Number(product.is_visible) === 1;
+
+// "Show in User UI" switch. Native button with role="switch" so Space/Enter
+// toggle it and screen readers announce the on/off state.
+const VisibilityToggle = ({ product, pending, onToggle }) => {
+  const visible = isProductVisible(product);
+  const label = visible
+    ? `Hide ${product.name} from customer UI`
+    : `Show ${product.name} in customer UI`;
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={visible}
+      aria-label={label}
+      title={label}
+      aria-busy={pending || undefined}
+      disabled={pending}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle(product);
+      }}
+      className="inline-flex items-center gap-2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-bree-primary focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-wait"
+    >
+      <span
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+          visible ? "bg-green-500" : "bg-gray-300"
+        }`}
+      >
+        <span
+          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+            visible ? "translate-x-[22px]" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+      <span
+        className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+          visible ? "text-green-700" : "text-red-600"
+        }`}
+      >
+        <span
+          aria-hidden="true"
+          className={`w-2 h-2 rounded-full ${
+            visible ? "bg-green-500" : "bg-red-500"
+          }`}
+        />
+        {pending ? "Saving…" : visible ? "Visible" : "Hidden"}
+      </span>
+    </button>
+  );
+};
+
 const Products = () => {
   const [products, setProducts] = useState([]);
   const [searchInput, setSearchInput] = useState("");
@@ -33,6 +91,13 @@ const Products = () => {
   const [relations, setRelations] = useState([]);
   const [relationsLoading, setRelationsLoading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  // Product ids with a visibility request in flight. The ref is the
+  // synchronous guard (two clicks in the same tick); the state drives the
+  // disabled/"Saving…" UI.
+  const visibilityInFlight = useRef(new Set());
+  const [visibilityPendingIds, setVisibilityPendingIds] = useState(
+    () => new Set(),
+  );
 
   const filteredProducts = useMemo(() => {
     const normalizedQuery = searchQuery.toLowerCase();
@@ -98,6 +163,45 @@ const Products = () => {
       toast.error(getApiErrorMessage(error));
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const setVisibilityPending = (productId, pending) => {
+    if (pending) visibilityInFlight.current.add(productId);
+    else visibilityInFlight.current.delete(productId);
+    setVisibilityPendingIds(new Set(visibilityInFlight.current));
+  };
+
+  // Sends the desired final state (not "toggle") and adopts the server's
+  // response as the authoritative value, so the row can never drift from
+  // what is persisted. One request per product at a time.
+  const handleToggleVisibility = async (product) => {
+    if (visibilityInFlight.current.has(product.id)) return;
+    const nextVisible = !isProductVisible(product);
+    setVisibilityPending(product.id, true);
+    try {
+      const response = await axios.patch(
+        `/api/admin/products/${product.id}/visibility`,
+        { is_visible: nextVisible },
+      );
+      const updated = response.data || {};
+      setProducts((prev) =>
+        prev.map((item) =>
+          item.id === product.id
+            ? { ...item, is_visible: updated.is_visible }
+            : item,
+        ),
+      );
+      toast.success(
+        isProductVisible(updated)
+          ? `${product.name} is now visible to customers.`
+          : `${product.name} is now hidden from the customer UI.`,
+      );
+    } catch (error) {
+      console.error("Failed to update product visibility", error);
+      toast.error("Unable to update product visibility. Please try again.");
+    } finally {
+      setVisibilityPending(product.id, false);
     }
   };
 
@@ -311,6 +415,9 @@ const Products = () => {
                       Journey
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-bree-text-secondary uppercase tracking-wider">
+                      Visibility
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-bree-text-secondary uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -402,6 +509,15 @@ const Products = () => {
                               Recs off
                             </span>
                           )}
+                        </td>
+
+                        {/* Visibility */}
+                        <td className="px-6 py-5">
+                          <VisibilityToggle
+                            product={product}
+                            pending={visibilityPendingIds.has(product.id)}
+                            onToggle={handleToggleVisibility}
+                          />
                         </td>
 
                         {/* Actions */}
@@ -507,7 +623,12 @@ const Products = () => {
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-end mt-4">
+                        <div className="flex items-center justify-between gap-3 mt-4">
+                          <VisibilityToggle
+                            product={product}
+                            pending={visibilityPendingIds.has(product.id)}
+                            onToggle={handleToggleVisibility}
+                          />
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => handleManageRelations(product)}

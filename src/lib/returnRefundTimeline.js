@@ -14,7 +14,7 @@
 //   Return Received       return_status = returned          returned_at (+ returned_source)
 //   Quality Check         inspection_status                 inspection_completed_at
 //   Refund Approved       refund_status                     refund_approved_at
-//   Refund Processing     refund_status initiated/completed —
+//   Refund Processing     refund_status processing/initiated/completed —
 //   Refund Completed      refund_status = completed         refund_completed_at
 //
 // A later Delhivery state is evidence for the earlier courier steps it
@@ -247,13 +247,16 @@ export const buildReturnRefundTimeline = (order) => {
     {
       key: "refund_approved",
       label: "Refund Approved",
-      reached: ["approved", "initiated", "completed"].includes(refund_status),
+      // 'processing' = completeRefund's claim while it talks to Razorpay
+      // (or one left behind by an interrupted call). It is past approval,
+      // so omitting it used to show Refund Approved as NOT reached.
+      reached: ["approved", "processing", "initiated", "completed"].includes(refund_status),
       timestamp: refund_approved_at || null,
     },
     {
       key: "refund_initiated",
       label: "Refund Processing",
-      reached: ["initiated", "completed"].includes(refund_status),
+      reached: ["processing", "initiated", "completed"].includes(refund_status),
       timestamp: null,
     },
     {

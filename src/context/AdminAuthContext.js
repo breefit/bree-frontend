@@ -8,6 +8,7 @@ import {
 import axios from "@/lib/api";
 import { toast } from "sonner";
 import { setAdminToken, clearAdminToken } from "@/lib/tokenStore";
+import { refreshSocketAuth } from "@/lib/socket";
 
 const AdminAuthContext = createContext();
 
@@ -21,6 +22,14 @@ export const useAdminAuth = () => {
 
 export const AdminAuthProvider = ({ children }) => {
   const [admin, setAdmin] = useState(null);
+
+  // FIX (Socket.IO security audit): the server assigns order-event rooms
+  // at handshake time from the session, so the socket re-handshakes
+  // whenever the signed-in identity changes (login, logout, session
+  // restored on reload). No-op until a page has opened the socket.
+  useEffect(() => {
+    refreshSocketAuth();
+  }, [admin?.id]);
   const [loading, setLoading] = useState(true);
   const [authenticating, setAuthenticating] = useState(false);
 

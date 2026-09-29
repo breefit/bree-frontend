@@ -263,7 +263,7 @@ const OrderTracking = () => {
     fetchRef.current();
   }, []);
 
-  useOrdersSync(handleOrderSocketUpdate);
+  useOrdersSync(handleOrderSocketUpdate, { trackOrderId: id });
 
   const awbNumber =
     order?.delhivery_awb || order?.awbNumber || order?.awb || null;

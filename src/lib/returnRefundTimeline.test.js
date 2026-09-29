@@ -255,6 +255,17 @@ test("refund initiated (Razorpay processing) -> Refund Processing current", () =
   expect(states(t).refund_completed).toBe("pending");
 });
 
+test("audit: refund 'processing' (Razorpay call in flight / interrupted) keeps Refund Approved done — never regresses it to pending", () => {
+  const t = buildReturnRefundTimeline(
+    receivedByDelhivery({ inspection_status: "approved", refund_status: "processing", refund_approved_at: T.refundApproved }),
+  );
+  expect(states(t).refund_approved).toBe("done");
+  expect(step(t, "refund_approved").timestamp).toBe(T.refundApproved);
+  expect(states(t).refund_initiated).toBe("current");
+  expect(states(t).refund_completed).toBe("pending");
+  expect(t.variant).toBe("in_progress");
+});
+
 test("refund completed -> every step done, variant completed", () => {
   const t = buildReturnRefundTimeline(
     receivedByDelhivery({

@@ -2034,14 +2034,21 @@ export const OrderModal = ({
                         talks to Razorpay — it should resolve to
                         'initiated'/'completed' (or revert to 'approved' on
                         failure) within the same request, so this should
-                        essentially never be visible. Shown read-only,
-                        matching 'completed'/'rejected' above, rather than a
-                        clickable action: retrying immediately would just
-                        409 until the backend's staleness window passes. */}
+                        essentially never be visible.
+                        FIX (return/refund E2E audit): it used to be a
+                        read-only badge, leaving a claim stranded by an
+                        interrupted request with no way forward from the UI.
+                        Re-checking is safe — the backend refuses (409) while
+                        the claim is fresh, and on a stale claim asks Razorpay
+                        for an existing refund before ever creating one. */}
                       {refundStatus === "processing" && (
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-blue-100 text-blue-700 border border-blue-200">
-                          Refund Processing…
-                        </span>
+                        <Button
+                          variant="outline"
+                          onClick={() => setConfirmModal("complete_refund")}
+                          className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                        >
+                          Refund Processing… Re-check
+                        </Button>
                       )}
                       {refundStatus === "completed" && (
                         <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-green-100 text-green-700 border border-green-200">

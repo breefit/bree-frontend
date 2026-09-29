@@ -72,7 +72,11 @@ describe("public tracking request stability", () => {
 
   test("socket handler identity is stable (no per-render resubscribe)", () => {
     expect(trackingSource).toContain("handleOrderSocketUpdate");
-    expect(trackingSource).toContain("useOrdersSync(handleOrderSocketUpdate)");
+    // Socket.IO security fix: the page also follows its own order (the
+    // public tracking room) — keyed by the route id, which is stable too.
+    expect(trackingSource).toContain(
+      "useOrdersSync(handleOrderSocketUpdate, { trackOrderId: id })",
+    );
     expect(trackingSource).toMatch(
       /const handleOrderSocketUpdate = useCallback/,
     );
