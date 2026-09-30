@@ -214,6 +214,7 @@ const REFUND_STATUS_COLORS = {
   initiated: "bg-blue-100 text-blue-700 border-blue-200",
   completed: "bg-green-100 text-green-700 border-green-200",
   rejected: "bg-red-100 text-red-500 border-red-200",
+  failed: "bg-red-100 text-red-700 border-red-200",
 };
 
 const REFUND_STATUS_LABELS = {
@@ -221,6 +222,7 @@ const REFUND_STATUS_LABELS = {
   initiated: "Processing",
   completed: "Completed",
   rejected: "Rejected",
+  failed: "Failed — retry needed",
 };
 
 const ReturnStatusBadge = ({ status }) => {
@@ -286,6 +288,16 @@ const RETURN_CONFIRM_COPY = {
     confirmLabel: "Initiate Refund",
     loadingLabel: "Processing...",
     colorClass: "bg-green-600 hover:bg-green-700 text-white",
+  },
+  // Separate from "Cancel Shipment": cancels the ORDER and refunds the
+  // captured Razorpay payment in full. Never touches the Delhivery shipment.
+  cancel_order_refund: {
+    title: "Cancel Order & Refund",
+    description:
+      "This cancels the order and refunds the full captured payment to the customer via Razorpay. The refund amount is calculated by the server. It does not cancel a Delhivery shipment — use Cancel Shipment for that first. This cannot be undone. Continue?",
+    confirmLabel: "Cancel Order & Refund",
+    loadingLabel: "Processing...",
+    colorClass: "bg-red-600 hover:bg-red-700 text-white",
   },
 };
 
@@ -677,6 +689,7 @@ export const OrderModal = ({
   onRejectRefund,
   onCompleteRefund,
   // ===== End Added =====
+  onCancelOrderRefund,
 }) => {
   const [shippingLoading, setShippingLoading] = useState(false);
 
@@ -739,17 +752,25 @@ export const OrderModal = ({
     order.trackingNumber ||
     order.tracking_number ||
     null;
+  // An AWB alone means the shipment is created (Delhivery "Manifested"), not
+  // shipped — the order moves to "shipped" only when Delhivery picks it up.
   const shipmentStatus =
     orderStatus === "shipped"
       ? "Shipped"
       : orderStatus === "ready_to_ship"
-        ? "Ready to Ship"
+        ? shipmentAwb
+          ? "Shipment Created — Awaiting Pickup"
+          : "Ready to Ship"
         : "Pending";
 
   // ===== Added: Schedule Pickup =====
   const pickupRequestId = getPickupRequestId(order);
+  // The order stays "ready_to_ship" after the AWB is created (backend
+  // PICKUP_SCHEDULABLE_ORDER_STATUSES); "shipped" covers older orders.
   const showSchedulePickupButton =
-    orderStatus === "shipped" && !pickupRequestId;
+    Boolean(shipmentAwb) &&
+    ["ready_to_ship", "shipped"].includes(orderStatus) &&
+    !pickupRequestId;
   // ===== End Added =====
 
   const handleShipOrder = async () => {
@@ -859,6 +880,17 @@ export const OrderModal = ({
   const refundStatus = order.refund_status || null;
   const showReturnSection = orderStatus === "delivered";
 
+  // Cancel Order & Refund (non-return orders only). UX gating only — the
+  // backend re-validates eligibility, the payment and the amount.
+  const orderHasLiveShipment =
+    Boolean(shipmentAwb) &&
+    String(order.tracking_status || "").trim().toLowerCase() !== "cancelled";
+  const showCancelRefundSection =
+    !order.return_status &&
+    !Number(order.is_subscription) &&
+    ["paid", "processing", "ready_to_ship", "cancelled"].includes(orderStatus) &&
+    (order.payment_status === "paid" || Boolean(order.refund_status));
+
   // FIX (Return/Refund audit — 48-hour window, requirement 3): this is
   // UX-only — the backend independently re-verifies the same rule on every
   // mutating call (isReturnWindowOpen() in returnController.js) and never
@@ -951,6 +983,8 @@ export const OrderModal = ({
         await onApproveRefund(order.id);
       } else if (confirmModal === "complete_refund") {
         await onCompleteRefund(order.id);
+      } else if (confirmModal === "cancel_order_refund") {
+        await onCancelOrderRefund(order.id);
       }
       setConfirmModal(null);
     } catch (err) {
@@ -1294,16 +1328,23 @@ export const OrderModal = ({
                       Delhivery Shipment
                     </p>
                     <p className="text-sm font-semibold text-bree-text-primary mt-0.5">
-                      Create a shipment for this order
+                      {shipmentAwb
+                        ? "Shipment created — awaiting Delhivery pickup"
+                        : "Create a shipment for this order"}
                     </p>
                   </div>
-                  <Button
-                    onClick={handleShipOrder}
-                    disabled={shippingLoading}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white"
-                  >
-                    {shippingLoading ? "Creating..." : "Ship with Delhivery"}
-                  </Button>
+                  {/* Hidden once the AWB exists — the order stays
+                    ready_to_ship until Delhivery picks it up, and the
+                    backend refuses a second shipment anyway. */}
+                  {!shipmentAwb && (
+                    <Button
+                      onClick={handleShipOrder}
+                      disabled={shippingLoading}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                    >
+                      {shippingLoading ? "Creating..." : "Ship with Delhivery"}
+                    </Button>
+                  )}
                 </div>
 
                 {(shipmentAwb ||
@@ -1483,6 +1524,67 @@ export const OrderModal = ({
               </div>
             )}
             {/* ===== End Modified ===== */}
+
+            {/* Cancel Order & Refund — separate from Cancel Shipment above,
+              which only cancels the Delhivery shipment and never refunds. */}
+            {showCancelRefundSection && (
+              <div className="p-4 rounded-2xl border border-red-200 bg-red-50">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-red-700">
+                      Cancel Order &amp; Refund
+                    </p>
+                    {refundStatus ? (
+                      <p className="text-sm text-bree-text-primary mt-0.5">
+                        Refund:{" "}
+                        <span className="font-semibold">
+                          {REFUND_STATUS_LABELS[refundStatus] || refundStatus}
+                        </span>
+                        {order.refund_amount != null &&
+                          ` · ₹${Number(order.refund_amount).toLocaleString()}`}
+                        {order.refund_reference && ` · ${order.refund_reference}`}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-bree-text-secondary mt-0.5">
+                        {orderHasLiveShipment
+                          ? "Cancel the Delhivery shipment first — this action never cancels shipments."
+                          : "Cancels the order and refunds the full captured payment."}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(!refundStatus || refundStatus === "failed") && (
+                      <Button
+                        onClick={() => setConfirmModal("cancel_order_refund")}
+                        disabled={orderHasLiveShipment}
+                        className="bg-red-600 hover:bg-red-700 text-white"
+                      >
+                        <Ban className="w-4 h-4 mr-2" />
+                        {refundStatus === "failed"
+                          ? "Retry Refund"
+                          : "Cancel Order & Refund"}
+                      </Button>
+                    )}
+                    {["approved", "processing", "initiated"].includes(
+                      refundStatus,
+                    ) && (
+                      <Button
+                        variant="outline"
+                        onClick={() => setConfirmModal("complete_refund")}
+                        className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                      >
+                        Refund Processing — Check Status
+                      </Button>
+                    )}
+                    {refundStatus === "completed" && (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-green-100 text-green-700 border border-green-200">
+                        Refund Completed
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* ===== Added: Return Management ===== */}
             {showReturnSection && (
@@ -2054,6 +2156,17 @@ export const OrderModal = ({
                         <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-green-100 text-green-700 border border-green-200">
                           Refund Completed
                         </span>
+                      )}
+                      {/* Razorpay reported the refund FAILED (webhook or
+                        recheck) — retrying is safe: completeRefund never
+                        re-creates a refund Razorpay still holds. */}
+                      {refundStatus === "failed" && (
+                        <Button
+                          onClick={() => setConfirmModal("complete_refund")}
+                          className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                          Retry Refund
+                        </Button>
                       )}
                       {refundStatus === "rejected" && (
                         <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-red-100 text-red-600 border border-red-200">
@@ -2899,6 +3012,33 @@ const Orders = () => {
   );
   // ===== End Added =====
 
+  // ── Cancel Order & Refund — separate from Cancel Shipment (which never
+  // refunds). The backend computes the amount and verifies the payment with
+  // Razorpay, so no amount is sent; a repeat click only rechecks/retries. ───
+  const handleCancelOrderRefund = useCallback(
+    async (orderId) => {
+      try {
+        const { data } = await axios.post(
+          `${API}/orders/${orderId}/cancel-refund`,
+          {},
+          AUTH(),
+        );
+        await refetchOrderAndList(orderId);
+        toast.success(data?.message || "Order cancelled and refund initiated.");
+      } catch (err) {
+        // The order may have been cancelled even if the refund step failed.
+        await refetchOrderAndList(orderId).catch(() => {});
+        const backendMessage =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Unable to cancel order and refund. Please try again.";
+        toast.error(backendMessage);
+        throw err;
+      }
+    },
+    [refetchOrderAndList],
+  );
+
   /* checkboxes */
   const pageIds = orders.map((o) => o.id);
   const allPageChecked =
@@ -3371,6 +3511,7 @@ const Orders = () => {
             onApproveRefund={handleApproveRefund}
             onRejectRefund={handleRejectRefund}
             onCompleteRefund={handleCompleteRefund}
+            onCancelOrderRefund={handleCancelOrderRefund}
           />
         )}
       </AnimatePresence>
