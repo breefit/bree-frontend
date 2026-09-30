@@ -17,10 +17,12 @@ const formatRupees = (amount) => {
 };
 
 const REFUND_STATUS_LABELS = {
-  approved: "Approved",
-  initiated: "Processing",
-  completed: "Completed",
-  rejected: "Rejected",
+  approved: "Refund Approved",
+  processing: "Refund Processing",
+  initiated: "Refund Initiated",
+  completed: "Refund Completed",
+  failed: "Refund Failed",
+  rejected: "Refund Rejected",
 };
 
 /**

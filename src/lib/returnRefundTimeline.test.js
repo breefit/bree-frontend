@@ -246,13 +246,25 @@ test("refund approved -> Refund Approved current with refund_approved_at", () =>
   expect(t.refund).toEqual({ amount: 950, status: "approved" });
 });
 
-test("refund initiated (Razorpay processing) -> Refund Processing current", () => {
+test("refund initiated (Razorpay accepted, not yet final) -> Refund Processing done, Refund Initiated current, NOT completed", () => {
   const t = buildReturnRefundTimeline(
     receivedByDelhivery({ inspection_status: "approved", refund_status: "initiated", refund_approved_at: T.refundApproved }),
   );
   expect(states(t).refund_approved).toBe("done");
+  expect(states(t).refund_processing).toBe("done");
   expect(states(t).refund_initiated).toBe("current");
+  expect(step(t, "refund_initiated").label).toBe("Refund Initiated");
   expect(states(t).refund_completed).toBe("pending");
+  expect(t.variant).toBe("in_progress");
+});
+
+test("refund failed -> Refund Failed step (failed), never Completed; no internal detail", () => {
+  const t = buildReturnRefundTimeline(
+    receivedByDelhivery({ inspection_status: "approved", refund_status: "failed", refund_approved_at: T.refundApproved }),
+  );
+  expect(t.variant).toBe("refund_failed");
+  expect(t.steps[t.steps.length - 1]).toEqual({ key: "refund_failed", label: "Refund Failed", state: "failed", timestamp: null });
+  expect(t.steps.some((s) => s.key === "refund_completed")).toBe(false);
 });
 
 test("audit: refund 'processing' (Razorpay call in flight / interrupted) keeps Refund Approved done — never regresses it to pending", () => {
@@ -261,7 +273,8 @@ test("audit: refund 'processing' (Razorpay call in flight / interrupted) keeps R
   );
   expect(states(t).refund_approved).toBe("done");
   expect(step(t, "refund_approved").timestamp).toBe(T.refundApproved);
-  expect(states(t).refund_initiated).toBe("current");
+  expect(states(t).refund_processing).toBe("current");
+  expect(states(t).refund_initiated).toBe("pending");
   expect(states(t).refund_completed).toBe("pending");
   expect(t.variant).toBe("in_progress");
 });

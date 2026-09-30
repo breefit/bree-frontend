@@ -211,18 +211,23 @@ const INSPECTION_STATUS_LABELS = {
 
 const REFUND_STATUS_COLORS = {
   approved: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  processing: "bg-amber-100 text-amber-700 border-amber-200",
   initiated: "bg-blue-100 text-blue-700 border-blue-200",
   completed: "bg-green-100 text-green-700 border-green-200",
   rejected: "bg-red-100 text-red-500 border-red-200",
   failed: "bg-red-100 text-red-700 border-red-200",
 };
 
+// refund_status → admin label. "Refund Completed" only for the backend's
+// verified final state (refund.processed / status check) — refund creation
+// alone is "Refund Initiated".
 const REFUND_STATUS_LABELS = {
-  approved: "Approved",
-  initiated: "Processing",
-  completed: "Completed",
-  rejected: "Rejected",
-  failed: "Failed — retry needed",
+  approved: "Refund Approved",
+  processing: "Refund Processing",
+  initiated: "Refund Initiated",
+  completed: "Refund Completed",
+  rejected: "Refund Rejected",
+  failed: "Refund Failed",
 };
 
 const ReturnStatusBadge = ({ status }) => {
@@ -1573,7 +1578,9 @@ export const OrderModal = ({
                         onClick={() => setConfirmModal("complete_refund")}
                         className="border-blue-200 text-blue-700 hover:bg-blue-50"
                       >
-                        Refund Processing — Check Status
+                        {refundStatus === "initiated"
+                          ? "Refund Initiated — Check Status"
+                          : "Refund Processing — Check Status"}
                       </Button>
                     )}
                     {refundStatus === "completed" && (
@@ -2128,7 +2135,7 @@ export const OrderModal = ({
                           onClick={() => setConfirmModal("complete_refund")}
                           className="bg-blue-600 hover:bg-blue-700 text-white"
                         >
-                          Refund Processing — Check Status
+                          Refund Initiated — Check Status
                         </Button>
                       )}
                       {/* FIX (ISSUE-011): 'processing' is the brief,

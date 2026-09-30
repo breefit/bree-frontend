@@ -26,6 +26,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { getOrderActionLabel } from "@/lib/orderDisplay";
 
 const normalizeStatus = (status) => {
   if (!status) return "pending_payment";
@@ -752,12 +753,14 @@ function OrdersTab() {
                 );
               })()}
               <div className="flex items-center gap-2">
+                {/* Same details/tracking page either way; a cancelled order with
+                    no shipment has nothing to track, so it reads View Details. */}
                 <button
                   type="button"
                   onClick={() => navigate(`/order/${order.id}/tracking`)}
                   className="text-sm bg-bree-primary text-white px-3 py-1 rounded-full"
                 >
-                  Track Order
+                  {getOrderActionLabel(order)}
                 </button>
               </div>
             </div>

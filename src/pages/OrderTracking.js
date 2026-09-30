@@ -8,6 +8,14 @@ import TrackingTimeline from "@/components/orders/TrackingTimeline";
 import OrderTrackingCard from "@/components/orders/OrderTrackingCard";
 import ReturnRefundTimeline from "@/components/orders/ReturnRefundTimeline";
 import useOrdersSync from "@/hooks/useOrdersSync";
+import {
+  buildCustomerTimeline,
+  buildCancellationRefundSteps,
+  getCustomerRefundLabel,
+  getNoShipmentMessage,
+  hasShipment,
+  isCancelledOrder,
+} from "@/lib/orderDisplay";
 
 const getShippingDisplay = (order) => {
   const isFree =
@@ -38,23 +46,6 @@ const getShippingDisplay = (order) => {
   return Number.isFinite(charge) && charge >= 0
     ? `₹${charge.toLocaleString("en-IN")}`
     : "Shipping information unavailable";
-};
-
-const CUSTOMER_TIMELINE = [
-  { status: "pending_payment", label: "Order Placed" },
-  { status: "paid", label: "Paid" },
-  { status: "processing", label: "Processing" },
-  { status: "ready_to_ship", label: "Ready to Ship" },
-  { status: "shipped", label: "Shipped" },
-  { status: "out_for_delivery", label: "Out for Delivery" },
-  { status: "delivered", label: "Delivered" },
-];
-
-const normalizeCustomerStatus = (status) => {
-  const normalized = String(status || "")
-    .trim()
-    .toLowerCase();
-  return normalized === "pending" ? "pending_payment" : normalized;
 };
 
 const API = "/api";
@@ -203,12 +194,9 @@ const OrderTracking = () => {
           (res.data.orderItems?.length ? res.data.orderItems : null) ||
           [];
         setItems(resolvedItems);
-        const resolvedAwb =
-          res.data.order?.delhivery_awb ||
-          res.data.order?.awbNumber ||
-          res.data.order?.awb ||
-          null;
-        if (resolvedAwb) {
+        // Authoritative backend flag (has_shipment, from awb_number) — the
+        // public tracking response never includes the AWB itself.
+        if (hasShipment(res.data.order)) {
           await fetchLiveTracking({ showLoading: true });
         } else {
           setLiveTracking(null);
@@ -265,53 +253,14 @@ const OrderTracking = () => {
 
   useOrdersSync(handleOrderSocketUpdate, { trackOrderId: id });
 
-  const awbNumber =
-    order?.delhivery_awb || order?.awbNumber || order?.awb || null;
-  const hasAwb = Boolean(awbNumber && awbNumber !== "-");
+  const hasAwb = hasShipment(order);
 
-  const steps = useMemo(() => {
-    const timestamps = new Map();
-
-    tracking.forEach((item) => {
-      const status = normalizeCustomerStatus(item.new_status || item.status);
-      if (
-        CUSTOMER_TIMELINE.some((step) => step.status === status) &&
-        !timestamps.has(status)
-      ) {
-        timestamps.set(status, item.created_at);
-      }
-    });
-
-    if (!timestamps.has("pending_payment") && order?.created_at) {
-      timestamps.set("pending_payment", order.created_at);
-    }
-
-    return CUSTOMER_TIMELINE.map((step) => ({
-      id: `${step.status}-${order?.id}`,
-      key: `${step.status}-${order?.id}`,
-      status: step.status,
-      label: step.label,
-      timestamp: timestamps.get(step.status) || null,
-    }));
-  }, [tracking, order]);
-
-  const customerCurrentStatus = useMemo(() => {
-    const currentStatus = normalizeCustomerStatus(order?.order_status);
-    if (CUSTOMER_TIMELINE.some((step) => step.status === currentStatus)) {
-      return currentStatus;
-    }
-
-    for (let index = tracking.length - 1; index >= 0; index -= 1) {
-      const historyStatus = normalizeCustomerStatus(
-        tracking[index].new_status || tracking[index].status,
-      );
-      if (CUSTOMER_TIMELINE.some((step) => step.status === historyStatus)) {
-        return historyStatus;
-      }
-    }
-
-    return "pending_payment";
-  }, [order, tracking]);
+  // Normal lifecycle, or — for a cancelled order — only the steps it really
+  // reached followed by "Cancelled" (see buildCustomerTimeline).
+  const { steps, currentStatus: customerCurrentStatus } = useMemo(
+    () => buildCustomerTimeline(order, tracking),
+    [order, tracking],
+  );
 
   const subtotal =
     order?.subtotal != null
@@ -458,6 +407,14 @@ const OrderTracking = () => {
     String(order?.order_status || "").toLowerCase() === "delivered" &&
     Boolean(order?.return_status);
 
+  // Cancelled order (not a return) with a refund: customer-safe refund
+  // progress only — no refund id, RRN or Razorpay details.
+  const cancellationRefundSteps = isCancelledOrder(order)
+    ? buildCancellationRefundSteps(order.refund_status)
+    : [];
+  const showCancellationRefund =
+    !order?.return_status && cancellationRefundSteps.length > 0;
+
   return (
     <div className="pt-24 pb-12 min-h-screen bg-bree-bg">
       <Helmet>
@@ -495,7 +452,7 @@ const OrderTracking = () => {
                   Shipment Tracking
                 </h3>
                 <p className="text-sm text-bree-text-secondary">
-                  Shipment has not been created yet.
+                  {getNoShipmentMessage(order)}
                 </p>
               </div>
             )}
@@ -542,6 +499,55 @@ const OrderTracking = () => {
               )}
             </div>
             {/* ===== End Modified ===== */}
+
+            {showCancellationRefund && (
+              <div
+                className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border"
+                data-testid="cancellation-refund"
+              >
+                <div className="flex items-center justify-between gap-4 mb-4">
+                  <h3 className="font-semibold text-bree-text-primary">Refund</h3>
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-bree-bg text-bree-text-primary">
+                    {getCustomerRefundLabel(order.refund_status)}
+                  </span>
+                </div>
+                <ol className="space-y-3">
+                  {cancellationRefundSteps.map((step) => (
+                    <li key={step.key} className="flex items-center gap-3 text-sm">
+                      <span
+                        className={`inline-block w-2.5 h-2.5 rounded-full ${
+                          step.state === "done"
+                            ? "bg-green-500"
+                            : step.state === "current"
+                              ? "bg-emerald-400 animate-pulse"
+                              : step.state === "failed"
+                                ? "bg-red-500"
+                                : "bg-gray-300"
+                        }`}
+                      />
+                      <span
+                        className={
+                          step.state === "pending"
+                            ? "text-bree-text-secondary"
+                            : step.state === "failed"
+                              ? "text-red-600 font-medium"
+                              : "text-bree-text-primary font-medium"
+                        }
+                      >
+                        {step.label}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-4 text-xs text-bree-text-secondary">
+                  {order.refund_status === "completed"
+                    ? "Your refund has been processed to your original payment method. Your bank or UPI app may take a few days to show the credit."
+                    : order.refund_status === "failed"
+                      ? "We could not complete your refund automatically. Our team will retry it — no action is needed from you."
+                      : "Your refund is being processed to your original payment method."}
+                </p>
+              </div>
+            )}
 
             <div className="bg-white rounded-2xl p-6 shadow-premium border border-bree-border">
               <h3 className="font-semibold text-bree-text-primary mb-4">

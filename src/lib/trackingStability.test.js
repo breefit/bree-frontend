@@ -7,6 +7,9 @@ const read = (p) => fs.readFileSync(path.join(__dirname, p), "utf8");
 const apiSource = read("./api.js");
 const authSource = read("../context/AuthContext.js");
 const trackingSource = read("../pages/OrderTracking.js");
+// The customer timeline definitions moved (verbatim) into lib/orderDisplay.js,
+// shared by OrderTracking.js and the Orders list.
+const orderDisplaySource = read("./orderDisplay.js");
 const appSource = read("../App.js");
 const routesSource = read(
   "../../../bree-backend/src/routes/index.js",
@@ -239,7 +242,7 @@ describe("public tracking request stability", () => {
   });
 
   test("existing 7-step normal order timeline (CUSTOMER_TIMELINE) is completely unchanged by this fix", () => {
-    expect(trackingSource).toMatch(
+    expect(orderDisplaySource).toMatch(
       /const CUSTOMER_TIMELINE = \[\s*\n\s*\{ status: "pending_payment", label: "Order Placed" \},\s*\n\s*\{ status: "paid", label: "Paid" \},\s*\n\s*\{ status: "processing", label: "Processing" \},\s*\n\s*\{ status: "ready_to_ship", label: "Ready to Ship" \},\s*\n\s*\{ status: "shipped", label: "Shipped" \},\s*\n\s*\{ status: "out_for_delivery", label: "Out for Delivery" \},\s*\n\s*\{ status: "delivered", label: "Delivered" \},\s*\n\s*\];/,
     );
   });

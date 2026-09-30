@@ -15,7 +15,11 @@
 //   Quality Check         inspection_status                 inspection_completed_at
 //   Refund Approved       refund_status                     refund_approved_at
 //   Refund Processing     refund_status processing/initiated/completed —
+//   Refund Initiated      refund_status initiated/completed  —
 //   Refund Completed      refund_status = completed         refund_completed_at
+//   (Refund Failed        refund_status = failed — failed branch)
+// 'completed' is only ever set from a verified final Razorpay state
+// (refund.processed / status check), never from refund creation.
 //
 // A later Delhivery state is evidence for the earlier courier steps it
 // implies (Delhivery cannot deliver a parcel to BREE it never picked up).
@@ -250,13 +254,19 @@ export const buildReturnRefundTimeline = (order) => {
       // 'processing' = completeRefund's claim while it talks to Razorpay
       // (or one left behind by an interrupted call). It is past approval,
       // so omitting it used to show Refund Approved as NOT reached.
-      reached: ["approved", "processing", "initiated", "completed"].includes(refund_status),
+      reached: ["approved", "processing", "initiated", "completed", "failed"].includes(refund_status),
       timestamp: refund_approved_at || null,
     },
     {
-      key: "refund_initiated",
+      key: "refund_processing",
       label: "Refund Processing",
-      reached: ["processing", "initiated", "completed"].includes(refund_status),
+      reached: ["processing", "initiated", "completed", "failed"].includes(refund_status),
+      timestamp: null,
+    },
+    {
+      key: "refund_initiated",
+      label: "Refund Initiated",
+      reached: ["initiated", "completed"].includes(refund_status),
       timestamp: null,
     },
     {
@@ -274,6 +284,22 @@ export const buildReturnRefundTimeline = (order) => {
       steps: [
         ...resolveStates(reachedOnly, { fullyComplete: true }).filter((s) => s.state !== "pending"),
         { key: "refund_rejected", label: "Refund Rejected", state: "failed", timestamp: null },
+      ],
+      refund,
+      reverseShipment,
+      tracking,
+    };
+  }
+
+  // Razorpay reported the refund FAILED — recoverable (admin retry); shown as
+  // a failed step without any internal failure detail.
+  if (refund_status === "failed") {
+    const reachedOnly = [...milestones, ...refundMilestones.slice(0, 2)];
+    return {
+      variant: "refund_failed",
+      steps: [
+        ...resolveStates(reachedOnly, { fullyComplete: true }).filter((s) => s.state !== "pending"),
+        { key: "refund_failed", label: "Refund Failed", state: "failed", timestamp: null },
       ],
       refund,
       reverseShipment,
