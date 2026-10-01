@@ -29,6 +29,10 @@ import {
   buildReturnRefundTimeline,
   RETURNED_SOURCE_LABELS,
 } from "@/lib/returnRefundTimeline";
+import {
+  buildAdminOrderTimeline,
+  getAdminCancellationSummary,
+} from "@/lib/orderDisplay";
 
 const API = "/api/admin";
 const AUTH = () => ({ withCredentials: true });
@@ -502,7 +506,7 @@ const ReasonNotesModal = ({
 };
 // ===== End Added =====
 
-const getCommonBulkStatuses = (orders, selectedIds) => {
+export const getCommonBulkStatuses = (orders, selectedIds) => {
   const selectedOrders = orders.filter((o) => selectedIds.includes(o.id));
   if (!selectedOrders.length) return MANUAL_EDITABLE_STATUSES;
   const intersection = selectedOrders
@@ -530,9 +534,10 @@ const getCommonBulkStatuses = (orders, selectedIds) => {
   const manualIntersection = [...intersection].filter((s) =>
     MANUAL_EDITABLE_STATUSES.includes(s),
   );
-  return manualIntersection.length
-    ? manualIntersection
-    : MANUAL_EDITABLE_STATUSES;
+  // No fallback: when the selection has no common valid manual transition
+  // (e.g. a cancelled order is selected — cancelled is terminal), offer
+  // nothing rather than statuses the backend would reject.
+  return manualIntersection;
   // ===== End Modified =====
 };
 
@@ -890,6 +895,8 @@ export const OrderModal = ({
   const orderHasLiveShipment =
     Boolean(shipmentAwb) &&
     String(order.tracking_status || "").trim().toLowerCase() !== "cancelled";
+  const cancellationSummary = getAdminCancellationSummary(order);
+  const isCancelledOrderStatus = orderStatus === "cancelled";
   const showCancelRefundSection =
     !order.return_status &&
     !Number(order.is_subscription) &&
@@ -1000,48 +1007,9 @@ export const OrderModal = ({
   };
   // ===== End Added =====
 
-  const timeline = [
-    { label: "Order Placed", done: true },
-    {
-      label: "Paid",
-      done: [
-        "paid",
-        "processing",
-        "ready_to_ship",
-        "shipped",
-        "out_for_delivery",
-        "delivered",
-      ].includes(orderStatus),
-    },
-    {
-      label: "Processing",
-      done: [
-        "processing",
-        "ready_to_ship",
-        "shipped",
-        "out_for_delivery",
-        "delivered",
-      ].includes(orderStatus),
-    },
-    {
-      label: "Ready To Ship",
-      done: [
-        "ready_to_ship",
-        "shipped",
-        "out_for_delivery",
-        "delivered",
-      ].includes(orderStatus),
-    },
-    {
-      label: "Shipped",
-      done: ["shipped", "out_for_delivery", "delivered"].includes(orderStatus),
-    },
-    {
-      label: "Out For Delivery",
-      done: ["out_for_delivery", "delivered"].includes(orderStatus),
-    },
-    { label: "Delivered", done: orderStatus === "delivered" },
-  ];
+  // History-driven: a cancelled order shows its real branch (reached steps
+  // → Cancelled → refund state); normal orders keep the lifecycle view.
+  const timeline = buildAdminOrderTimeline(order, order.status_history || []);
 
   // ===== Modified =====
   // Live Delhivery tracking status (if fetched) falls back to whatever the
@@ -1324,6 +1292,21 @@ export const OrderModal = ({
               </p>
             </div>
 
+            {/* Cancelled before any shipment existed: say so explicitly; no
+              shipment actions are offered (they all require an AWB, or
+              ready_to_ship for Ship with Delhivery). */}
+            {isCancelledOrderStatus && !shipmentAwb && (
+              <div
+                className="flex items-center gap-2 p-4 rounded-2xl border border-bree-border bg-bree-bg"
+                data-testid="no-shipment-cancelled"
+              >
+                <Truck className="w-4 h-4 text-bree-text-secondary flex-shrink-0" />
+                <p className="text-sm text-bree-text-secondary">
+                  No shipment was created for this cancelled order.
+                </p>
+              </div>
+            )}
+
             {/* Shipping action */}
             {orderStatus === "ready_to_ship" && (
               <div className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50">
@@ -1533,27 +1516,44 @@ export const OrderModal = ({
             {/* Cancel Order & Refund — separate from Cancel Shipment above,
               which only cancels the Delhivery shipment and never refunds. */}
             {showCancelRefundSection && (
-              <div className="p-4 rounded-2xl border border-red-200 bg-red-50">
+              <div
+                className="p-4 rounded-2xl border border-red-200 bg-red-50"
+                data-testid="cancel-refund-panel"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-red-700">
-                      Cancel Order &amp; Refund
+                      {cancellationSummary.title}
                     </p>
-                    {refundStatus ? (
+                    {cancellationSummary.cancelled && (
                       <p className="text-sm text-bree-text-primary mt-0.5">
-                        Refund:{" "}
-                        <span className="font-semibold">
-                          {REFUND_STATUS_LABELS[refundStatus] || refundStatus}
-                        </span>
-                        {order.refund_amount != null &&
-                          ` · ₹${Number(order.refund_amount).toLocaleString()}`}
-                        {order.refund_reference && ` · ${order.refund_reference}`}
+                        Order Status:{" "}
+                        <span className="font-semibold">Cancelled</span>
                       </p>
+                    )}
+                    {refundStatus ? (
+                      <>
+                        <p className="text-sm text-bree-text-primary mt-0.5">
+                          Refund:{" "}
+                          <span className="font-semibold">
+                            {REFUND_STATUS_LABELS[refundStatus] || refundStatus}
+                          </span>
+                          {order.refund_amount != null &&
+                            ` · ₹${Number(order.refund_amount).toLocaleString()}`}
+                        </p>
+                        {order.refund_reference && (
+                          <p className="text-xs text-bree-text-secondary mt-0.5">
+                            Refund ID: {order.refund_reference}
+                          </p>
+                        )}
+                      </>
                     ) : (
                       <p className="text-xs text-bree-text-secondary mt-0.5">
                         {orderHasLiveShipment
                           ? "Cancel the Delhivery shipment first — this action never cancels shipments."
-                          : "Cancels the order and refunds the full captured payment."}
+                          : cancellationSummary.cancelled
+                            ? "The order is cancelled but its captured payment has not been refunded yet."
+                            : "Cancels the order and refunds the full captured payment."}
                       </p>
                     )}
                   </div>
@@ -1567,7 +1567,9 @@ export const OrderModal = ({
                         <Ban className="w-4 h-4 mr-2" />
                         {refundStatus === "failed"
                           ? "Retry Refund"
-                          : "Cancel Order & Refund"}
+                          : cancellationSummary.cancelled
+                            ? "Refund Payment"
+                            : "Cancel Order & Refund"}
                       </Button>
                     )}
                     {["approved", "processing", "initiated"].includes(
@@ -1582,11 +1584,6 @@ export const OrderModal = ({
                           ? "Refund Initiated — Check Status"
                           : "Refund Processing — Check Status"}
                       </Button>
-                    )}
-                    {refundStatus === "completed" && (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-green-100 text-green-700 border border-green-200">
-                        Refund Completed
-                      </span>
                     )}
                   </div>
                 </div>
@@ -2196,6 +2193,24 @@ export const OrderModal = ({
               for status. Manual buttons are hidden and replaced with a
               sync notice. Before shipment creation, only the pre-shipment
               statuses (processing / ready_to_ship) remain manually settable. */}
+            {isCancelledOrderStatus ? (
+              <div data-testid="order-status-readonly">
+                <p className="text-xs text-bree-text-secondary mb-2 font-medium uppercase tracking-wide">
+                  Order Status
+                </p>
+                <div className="flex items-start gap-3 p-3 rounded-xl bg-red-50 border border-red-200">
+                  <span
+                    className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize inline-block flex-shrink-0 ${STATUS_COLORS.cancelled}`}
+                  >
+                    Cancelled
+                  </span>
+                  <p className="text-sm text-bree-text-secondary">
+                    This order has been cancelled and cannot be moved back to
+                    an active fulfillment status.
+                  </p>
+                </div>
+              </div>
+            ) : (
             <div>
               <p className="text-xs text-bree-text-secondary mb-2 font-medium uppercase tracking-wide">
                 Update Order Status
@@ -2227,6 +2242,7 @@ export const OrderModal = ({
                 </div>
               )}
             </div>
+            )}
             {/* ===== End Modified ===== */}
 
             {/* Order Timeline */}
@@ -2234,28 +2250,54 @@ export const OrderModal = ({
               <p className="text-xs text-bree-text-secondary mb-3 font-medium uppercase tracking-wide">
                 Order Timeline
               </p>
-              <div className="space-y-3">
-                {timeline.map(({ label, done }, i) => (
-                  <div key={i} className="flex items-center gap-3">
+              <div className="space-y-3" data-testid="admin-order-timeline">
+                {timeline.map(({ key, label, state, timestamp }, i) => (
+                  <div
+                    key={key}
+                    className="flex items-center gap-3"
+                    data-step={key}
+                    data-state={state}
+                  >
                     <div
                       className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold
                     ${
-                      done
+                      state === "done"
                         ? "bg-bree-primary text-white"
-                        : "bg-bree-bg border-2 border-bree-border text-bree-text-secondary"
+                        : state === "cancelled" || state === "failed"
+                          ? "bg-red-500 text-white"
+                          : state === "current"
+                            ? "bg-emerald-100 text-emerald-700 border-2 border-emerald-300"
+                            : "bg-bree-bg border-2 border-bree-border text-bree-text-secondary"
                     }`}
                     >
-                      {done ? "✓" : i + 1}
+                      {state === "done" || state === "cancelled"
+                        ? "✓"
+                        : state === "failed"
+                          ? "✕"
+                          : i + 1}
                     </div>
-                    <p
-                      className={`text-sm font-medium ${
-                        done
-                          ? "text-bree-text-primary"
-                          : "text-bree-text-secondary"
-                      }`}
-                    >
-                      {label}
-                    </p>
+                    <div className="flex-1 flex items-center justify-between gap-3">
+                      <p
+                        className={`text-sm font-medium ${
+                          state === "pending"
+                            ? "text-bree-text-secondary"
+                            : state === "cancelled" || state === "failed"
+                              ? "text-red-600"
+                              : "text-bree-text-primary"
+                        }`}
+                      >
+                        {label}
+                      </p>
+                      {timestamp && (
+                        <p className="text-xs text-bree-text-secondary">
+                          {new Date(timestamp).toLocaleString("en-IN", {
+                            timeZone: "Asia/Kolkata",
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2300,9 +2342,10 @@ export const OrderModal = ({
 const BulkBar = ({ count, onApply, onClear, availableStatuses }) => {
   const [status, setStatus] = useState("");
   const hasSelection = count > 0;
-  const selectableStatuses = availableStatuses.length
+  const selectableStatuses = hasSelection
     ? availableStatuses
     : MANUAL_EDITABLE_STATUSES;
+  const noValidStatus = hasSelection && selectableStatuses.length === 0;
   return (
     <div className="flex flex-wrap items-center gap-3 bg-[#EFF6FF] border border-[#BFDBFE] px-5 py-3 rounded-2xl">
       <div className="flex items-center gap-2">
@@ -2327,12 +2370,17 @@ const BulkBar = ({ count, onApply, onClear, availableStatuses }) => {
       <div className="flex items-center gap-2 ml-auto flex-wrap">
         <select
           value={status}
-          disabled={!hasSelection}
+          disabled={!hasSelection || noValidStatus}
+          title={
+            noValidStatus
+              ? "No status change is valid for every selected order (cancelled orders cannot be moved back to fulfillment)."
+              : undefined
+          }
           onChange={(e) => setStatus(e.target.value)}
           className="text-sm bg-white border border-[#BFDBFE] text-[#1E40AF] font-medium rounded-lg px-3 py-1.5 outline-none focus:border-[#2563EB] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
         >
           <option value="" disabled className="text-slate-400">
-            Set status…
+            {noValidStatus ? "No valid status change" : "Set status…"}
           </option>
           {selectableStatuses.map((s) => (
             <option key={s} value={s} className="text-slate-800 capitalize">
@@ -2391,6 +2439,24 @@ const StatusCell = ({ orderId, currentStatus, onChange, locked }) => {
   const availableStatuses = (
     ORDER_TRANSITIONS[safeStatus] || [safeStatus]
   ).filter((s) => MANUAL_EDITABLE_STATUSES.includes(s) || s === safeStatus);
+
+  // Nothing to change to (e.g. cancelled — terminal): a static badge, not a
+  // dropdown that looks actionable.
+  if (availableStatuses.filter((s) => s !== safeStatus).length === 0) {
+    return (
+      <span
+        title={
+          safeStatus === "cancelled"
+            ? "Cancelled orders cannot be moved back to an active fulfillment status."
+            : undefined
+        }
+        className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize inline-block cursor-default
+          ${STATUS_COLORS[safeStatus] || "bg-gray-100 text-gray-600 border-gray-200"}`}
+      >
+        {safeStatus.replace(/_/g, " ")}
+      </span>
+    );
+  }
 
   return (
     <select
@@ -3279,7 +3345,7 @@ const Orders = () => {
                     Payment
                   </th>
                   <th className="py-3 px-4 text-left text-xs font-semibold text-bree-text-secondary uppercase tracking-wide whitespace-nowrap">
-                    Status
+                    Order Status
                   </th>
                   <th className="py-3 px-4 text-left text-xs font-semibold text-bree-text-secondary uppercase tracking-wide whitespace-nowrap">
                     <span className="flex items-center gap-1">

@@ -166,3 +166,85 @@ export const buildCustomerTimeline = (order, history = []) => {
 
   return { steps, currentStatus };
 };
+
+// Admin wording for the same lifecycle steps (title case, as the admin UI
+// has always used).
+const ADMIN_STEP_LABELS = {
+  pending_payment: "Order Placed",
+  paid: "Paid",
+  processing: "Processing",
+  ready_to_ship: "Ready To Ship",
+  shipped: "Shipped",
+  out_for_delivery: "Out For Delivery",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
+/**
+ * Admin order-details timeline. States: done | current | pending |
+ * cancelled | failed.
+ *
+ * Normal orders: unchanged status-driven lifecycle (every step up to and
+ * including the current status is done), plus history timestamps when the
+ * admin API supplied them.
+ *
+ * Cancelled orders: the same branch as the customer timeline
+ * (buildCustomerTimeline) — only the steps evidenced by status history,
+ * then Cancelled — followed by the refund's own state when there is one.
+ * Shipped / Out For Delivery / Delivered never appear as pending future
+ * steps, and no timestamp is ever invented.
+ */
+export const buildAdminOrderTimeline = (order, history = []) => {
+  if (isCancelledOrder(order)) {
+    const { steps } = buildCustomerTimeline(order, history);
+    const timeline = steps.map((step) => ({
+      key: step.status,
+      label: ADMIN_STEP_LABELS[step.status] || step.label,
+      timestamp: step.timestamp,
+      state: step.status === "cancelled" ? "cancelled" : "done",
+    }));
+    const refundLabel = getCustomerRefundLabel(order?.refund_status);
+    if (refundLabel) {
+      const refundStatus = order.refund_status;
+      timeline.push({
+        key: "refund",
+        label: refundLabel,
+        timestamp: refundStatus === "completed" ? order.refund_completed_at || null : null,
+        state:
+          refundStatus === "completed"
+            ? "done"
+            : refundStatus === "failed" || refundStatus === "rejected"
+              ? "failed"
+              : "current",
+      });
+    }
+    return timeline;
+  }
+
+  const timestamps = firstTimestamps(history, order);
+  const current = normalizeCustomerStatus(order?.order_status ?? order?.status);
+  const currentIndex = CUSTOMER_TIMELINE.findIndex((step) => step.status === current);
+  return CUSTOMER_TIMELINE.map((step, index) => ({
+    key: step.status,
+    label: ADMIN_STEP_LABELS[step.status],
+    timestamp: timestamps.get(step.status) || null,
+    state: index === 0 || (currentIndex !== -1 && index <= currentIndex) ? "done" : "pending",
+  }));
+};
+
+/**
+ * Heading/summary for the admin Cancel Order & Refund panel. Result-oriented
+ * once the order is cancelled; the action wording only while it is not.
+ */
+export const getAdminCancellationSummary = (order) => {
+  const cancelled = isCancelledOrder(order);
+  const refundStatus = order?.refund_status || null;
+  if (!cancelled) {
+    return { title: "Cancel Order & Refund", cancelled: false, refundLabel: getCustomerRefundLabel(refundStatus) };
+  }
+  return {
+    title: refundStatus === "completed" ? "Order Cancelled & Refunded" : "Order Cancelled",
+    cancelled: true,
+    refundLabel: getCustomerRefundLabel(refundStatus),
+  };
+};
