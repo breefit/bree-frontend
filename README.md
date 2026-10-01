@@ -682,3 +682,4 @@ Current, implemented state of this frontend:
 - ✅ Toast-based notifications and consistent loading/error/empty states throughout
 
 This section reflects the current implementation only — it is not a historical changelog or QA audit log.
+<!--  -->
