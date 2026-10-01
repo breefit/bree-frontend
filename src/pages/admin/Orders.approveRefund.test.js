@@ -119,3 +119,27 @@ test("ISSUE-005: clicking Approve Refund, then confirming, calls onApproveRefund
   // resolveApprovedRefundAmount) now defaults to a full refund for.
   expect(calls[0]).toEqual(["order-refund-test-1"]);
 });
+
+// Audit finding 9 — package-cycle 2+ orders carry no Razorpay payment of
+// their own; the backend refuses their refund until a business decision
+// defines the payment mapping. The admin sees why instead of a button that
+// can only fail.
+test("package-cycle order without its own payment: no Approve Refund button, the reason is shown instead (Reject Refund stays available)", () => {
+  renderOrderModal(
+    baseOrder({ parent_package_id: "pkg-1", fulfillment_cycle: 2, has_refundable_payment: 0 }),
+  );
+  expect(screen.queryByRole("button", { name: "Approve Refund" })).toBeNull();
+  expect(
+    screen.getByText(
+      "Refund processing for package-cycle orders requires the original package payment mapping and is not currently supported.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Reject Refund" })).toBeTruthy();
+});
+
+test("a package order that has its own payment still shows Approve Refund", () => {
+  renderOrderModal(
+    baseOrder({ parent_package_id: "pkg-1", fulfillment_cycle: 1, has_refundable_payment: 1 }),
+  );
+  expect(screen.getByRole("button", { name: "Approve Refund" })).toBeTruthy();
+});

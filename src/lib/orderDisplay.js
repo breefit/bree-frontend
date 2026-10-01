@@ -248,3 +248,17 @@ export const getAdminCancellationSummary = (order) => {
     refundLabel: getCustomerRefundLabel(refundStatus),
   };
 };
+
+// Package-cycle 2+ orders carry no Razorpay payment of their own (the money
+// was paid on the package's original order), so the backend refuses their
+// refund with code PACKAGE_CYCLE_REFUND_UNSUPPORTED until a business
+// decision defines which payment to refund. `has_refundable_payment` comes
+// from the admin order API; an older API without it is never blocked here.
+export const PACKAGE_CYCLE_REFUND_UNSUPPORTED_MESSAGE =
+  "Refund processing for package-cycle orders requires the original package payment mapping and is not currently supported.";
+
+export const isPackageCycleRefundUnsupported = (order) =>
+  Boolean(order?.parent_package_id) &&
+  order?.has_refundable_payment !== undefined &&
+  order?.has_refundable_payment !== null &&
+  !Number(order.has_refundable_payment);

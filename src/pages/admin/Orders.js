@@ -32,6 +32,8 @@ import {
 import {
   buildAdminOrderTimeline,
   getAdminCancellationSummary,
+  isPackageCycleRefundUnsupported,
+  PACKAGE_CYCLE_REFUND_UNSUPPORTED_MESSAGE,
 } from "@/lib/orderDisplay";
 
 const API = "/api/admin";
@@ -907,6 +909,10 @@ export const OrderModal = ({
     order.reverse_tracking_status === "delivered_to_bree";
   const inspectionStatus = order.inspection_status || null;
   const refundStatus = order.refund_status || null;
+  // Package-cycle 2+ orders have no Razorpay payment of their own, so the
+  // backend refuses their refund (PACKAGE_CYCLE_REFUND_UNSUPPORTED) until a
+  // business decision maps them to the original package payment.
+  const packageCycleRefundUnsupported = isPackageCycleRefundUnsupported(order);
   const showReturnSection = orderStatus === "delivered";
 
   // Cancel Order & Refund (non-return orders only). UX gating only — the
@@ -2142,12 +2148,21 @@ export const OrderModal = ({
                           >
                             Reject Refund
                           </Button>
-                          <Button
-                            onClick={() => setConfirmModal("approve_refund")}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                          >
-                            Approve Refund
-                          </Button>
+                          {packageCycleRefundUnsupported ? (
+                            <p
+                              role="note"
+                              className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-md"
+                            >
+                              {PACKAGE_CYCLE_REFUND_UNSUPPORTED_MESSAGE}
+                            </p>
+                          ) : (
+                            <Button
+                              onClick={() => setConfirmModal("approve_refund")}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            >
+                              Approve Refund
+                            </Button>
+                          )}
                         </>
                       )}
                       {refundStatus === "approved" && (
