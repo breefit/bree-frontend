@@ -308,6 +308,25 @@ const RETURN_CONFIRM_COPY = {
     loadingLabel: "Processing...",
     colorClass: "bg-red-600 hover:bg-red-700 text-white",
   },
+  // Same backend action for an order that is ALREADY cancelled (e.g. via
+  // Cancel Shipment) — it only refunds, so it must not be worded as a
+  // cancellation.
+  refund_cancelled_order: {
+    title: "Refund Payment",
+    description:
+      "This order is already cancelled. This refunds the full captured payment to the customer via Razorpay. The refund amount is calculated by the server. Continue?",
+    confirmLabel: "Refund Payment",
+    loadingLabel: "Processing...",
+    colorClass: "bg-red-600 hover:bg-red-700 text-white",
+  },
+  retry_refund: {
+    title: "Retry Refund",
+    description:
+      "Razorpay reported the previous refund for this order as failed. This retries the refund of the full captured payment — the server first checks that no refund for this order already exists at Razorpay. Continue?",
+    confirmLabel: "Retry Refund",
+    loadingLabel: "Processing...",
+    colorClass: "bg-red-600 hover:bg-red-700 text-white",
+  },
 };
 
 // ===== Added: Fix 2/3 — generic reason+notes modal config for approve
@@ -995,7 +1014,11 @@ export const OrderModal = ({
         await onApproveRefund(order.id);
       } else if (confirmModal === "complete_refund") {
         await onCompleteRefund(order.id);
-      } else if (confirmModal === "cancel_order_refund") {
+      } else if (
+        confirmModal === "cancel_order_refund" ||
+        confirmModal === "refund_cancelled_order" ||
+        confirmModal === "retry_refund"
+      ) {
         await onCancelOrderRefund(order.id);
       }
       setConfirmModal(null);
@@ -1560,7 +1583,15 @@ export const OrderModal = ({
                   <div className="flex flex-wrap items-center gap-2">
                     {(!refundStatus || refundStatus === "failed") && (
                       <Button
-                        onClick={() => setConfirmModal("cancel_order_refund")}
+                        onClick={() =>
+                          setConfirmModal(
+                            refundStatus === "failed"
+                              ? "retry_refund"
+                              : cancellationSummary.cancelled
+                                ? "refund_cancelled_order"
+                                : "cancel_order_refund",
+                          )
+                        }
                         disabled={orderHasLiveShipment}
                         className="bg-red-600 hover:bg-red-700 text-white"
                       >
