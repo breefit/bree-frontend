@@ -34,6 +34,7 @@ import {
   getAdminCancellationSummary,
   isPackageCycleRefundUnsupported,
   PACKAGE_CYCLE_REFUND_UNSUPPORTED_MESSAGE,
+  getAdminPaymentStatusLabel,
 } from "@/lib/orderDisplay";
 
 const API = "/api/admin";
@@ -224,14 +225,16 @@ const REFUND_STATUS_COLORS = {
   failed: "bg-red-100 text-red-700 border-red-200",
 };
 
-// refund_status → admin label. "Refund Completed" only for the backend's
+// refund_status → admin label. "Refund Processed" only for the backend's
 // verified final state (refund.processed / status check) — refund creation
-// alone is "Refund Initiated".
+// alone is "Refund Initiated". The DB value stays 'completed'; the label
+// says "Processed" because Razorpay processing it does not mean the bank
+// has credited the customer yet (same wording the customer sees).
 const REFUND_STATUS_LABELS = {
   approved: "Refund Approved",
   processing: "Refund Processing",
   initiated: "Refund Initiated",
-  completed: "Refund Completed",
+  completed: "Refund Processed",
   rejected: "Refund Rejected",
   failed: "Refund Failed",
 };
@@ -1215,7 +1218,7 @@ export const OrderModal = ({
                     "bg-gray-100 text-gray-600"
                   }`}
                 >
-                  {order.payment_status}
+                  {getAdminPaymentStatusLabel(order.payment_status)}
                 </span>
               </div>
 
@@ -1952,7 +1955,7 @@ export const OrderModal = ({
                       {order.refund_completed_at && (
                         <div className="flex items-start justify-between gap-3">
                           <p className="text-[11px] uppercase tracking-wide text-bree-text-secondary flex-shrink-0">
-                            Refund Completed At
+                            Refund Processed At
                           </p>
                           <p className="text-sm font-medium text-bree-text-primary text-right">
                             {new Date(order.refund_completed_at).toLocaleString(
@@ -2204,7 +2207,7 @@ export const OrderModal = ({
                       )}
                       {refundStatus === "completed" && (
                         <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-green-100 text-green-700 border border-green-200">
-                          Refund Completed
+                          Refund Processed
                         </span>
                       )}
                       {/* Razorpay reported the refund FAILED (webhook or
@@ -3525,7 +3528,7 @@ const Orders = () => {
                             "bg-gray-100 text-gray-600"
                           }`}
                         >
-                          {order.payment_status}
+                          {getAdminPaymentStatusLabel(order.payment_status)}
                         </span>
                       </td>
                       <td className="py-3 px-4">

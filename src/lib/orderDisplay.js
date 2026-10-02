@@ -50,17 +50,18 @@ export const getNoShipmentMessage = (order) =>
   isCancelledOrder(order) ? CANCELLED_NO_SHIPMENT_MESSAGE : SHIPMENT_NOT_CREATED_MESSAGE;
 
 /**
- * Customer refund labels. "Refund Completed" only for the backend's final
+ * Customer refund labels. "Refund Processed" only for the backend's final
  * `completed` state, which is set only from a verified Razorpay final state
  * (refund.processed webhook / status check) — never from refund creation.
- * Completed means Razorpay processed the refund; the bank/UPI credit itself
- * can take longer.
+ * That means Razorpay processed the refund; the bank/UPI credit itself can
+ * take longer, so customers are never told "Refund Completed". Same wording
+ * for cancellation refunds and return refunds.
  */
 export const CUSTOMER_REFUND_STATUS_LABELS = {
   approved: "Refund Approved",
   processing: "Refund Processing",
   initiated: "Refund Initiated",
-  completed: "Refund Completed",
+  completed: "Refund Processed",
   failed: "Refund Failed",
   rejected: "Refund Rejected",
 };
@@ -70,7 +71,7 @@ export const getCustomerRefundLabel = (refundStatus) =>
 
 /**
  * Refund progress for a cancelled order:
- *   Refund Processing → Refund Initiated → Refund Completed
+ *   Refund Processing → Refund Initiated → Refund Processed
  * or, on failure, Refund Processing → Refund Failed.
  * States: done | current | pending | failed. Returns [] with no refund.
  */
@@ -84,7 +85,7 @@ export const buildCancellationRefundSteps = (refundStatus) => {
   }
   const order = ["processing", "initiated", "completed"];
   const reachedIndex = order.indexOf(refundStatus === "approved" ? "processing" : refundStatus);
-  const labels = ["Refund Processing", "Refund Initiated", "Refund Completed"];
+  const labels = ["Refund Processing", "Refund Initiated", "Refund Processed"];
   return order.map((status, index) => ({
     key: `refund_${status}`,
     label: labels[index],
@@ -243,7 +244,9 @@ export const getAdminCancellationSummary = (order) => {
     return { title: "Cancel Order & Refund", cancelled: false, refundLabel: getCustomerRefundLabel(refundStatus) };
   }
   return {
-    title: refundStatus === "completed" ? "Order Cancelled & Refunded" : "Order Cancelled",
+    // Razorpay processed the refund; the bank credit may still be pending,
+    // so never "Refunded".
+    title: refundStatus === "completed" ? "Order Cancelled & Refund Processed" : "Order Cancelled",
     cancelled: true,
     refundLabel: getCustomerRefundLabel(refundStatus),
   };
@@ -262,3 +265,15 @@ export const isPackageCycleRefundUnsupported = (order) =>
   order?.has_refundable_payment !== undefined &&
   order?.has_refundable_payment !== null &&
   !Number(order.has_refundable_payment);
+
+// Admin Orders payment badge. orders.payment_status 'refunded' is written
+// only when Razorpay reports the refund processed (refund.processed webhook
+// or a status check) — the bank credit can still be pending — so it is shown
+// as "Refund Processed", matching refund_status 'completed'. Display only:
+// the stored value stays 'refunded'. Every other value is shown as stored.
+const ADMIN_PAYMENT_STATUS_LABELS = Object.freeze({
+  refunded: "Refund Processed",
+});
+
+export const getAdminPaymentStatusLabel = (paymentStatus) =>
+  ADMIN_PAYMENT_STATUS_LABELS[paymentStatus] || paymentStatus;

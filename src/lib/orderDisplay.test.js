@@ -5,6 +5,8 @@ import {
   buildCancellationRefundSteps,
   buildCustomerTimeline,
   CANCELLED_NO_SHIPMENT_MESSAGE,
+  getAdminCancellationSummary,
+  getAdminPaymentStatusLabel,
   getCustomerRefundLabel,
   getNoShipmentMessage,
   getOrderActionLabel,
@@ -108,7 +110,7 @@ describe("Customer refund display", () => {
   test("labels follow the backend refund state exactly", () => {
     expect(getCustomerRefundLabel("processing")).toBe("Refund Processing");
     expect(getCustomerRefundLabel("initiated")).toBe("Refund Initiated");
-    expect(getCustomerRefundLabel("completed")).toBe("Refund Completed");
+    expect(getCustomerRefundLabel("completed")).toBe("Refund Processed");
     expect(getCustomerRefundLabel("failed")).toBe("Refund Failed");
   });
 
@@ -117,7 +119,7 @@ describe("Customer refund display", () => {
     expect(steps.map((s) => [s.label, s.state])).toEqual([
       ["Refund Processing", "done"],
       ["Refund Initiated", "current"],
-      ["Refund Completed", "pending"],
+      ["Refund Processed", "pending"],
     ]);
   });
 
@@ -134,4 +136,17 @@ describe("Customer refund display", () => {
   test("the cancellation message constant is the exact customer copy", () => {
     expect(CANCELLED_NO_SHIPMENT_MESSAGE).toBe("Shipment was not created because this order was cancelled.");
   });
+});
+
+test("admin cancellation summary for refund_status 'completed' says 'Refund Processed', never 'Refunded'", () => {
+  const summary = getAdminCancellationSummary({ order_status: "cancelled", refund_status: "completed" });
+  expect(summary.title).toBe("Order Cancelled & Refund Processed");
+  expect(summary.refundLabel).toBe("Refund Processed");
+});
+
+test("admin payment badge: 'refunded' is shown as 'Refund Processed'; other payment states unchanged", () => {
+  expect(getAdminPaymentStatusLabel("refunded")).toBe("Refund Processed");
+  expect(getAdminPaymentStatusLabel("paid")).toBe("paid");
+  expect(getAdminPaymentStatusLabel("pending")).toBe("pending");
+  expect(getAdminPaymentStatusLabel("failed")).toBe("failed");
 });

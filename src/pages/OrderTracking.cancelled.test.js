@@ -70,11 +70,11 @@ test("cancelled + no shipment + refund initiated: cancellation explanation, Canc
   ]);
 });
 
-test("cancelled order whose refund completed shows Refund Completed only then", async () => {
+test("cancelled order whose refund completed shows Refund Processed only then", async () => {
   mockGet.mockResolvedValue(trackingResponse({ refund_status: "completed" }));
   render(<OrderTracking />);
   const refund = await screen.findByTestId("cancellation-refund");
-  expect(within(refund).getAllByText("Refund Completed").length).toBeGreaterThan(0);
+  expect(within(refund).getAllByText("Refund Processed").length).toBeGreaterThan(0);
 });
 
 test("cancelled order WITH a shipment keeps the live shipment tracking (has_shipment drives it)", async () => {

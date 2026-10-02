@@ -117,7 +117,7 @@ test("2b. bulk update: a selection containing a cancelled order offers NO status
 
 // ── 3 / 4. Timeline branch ─────────────────────────────────────────────
 
-test("3 + 4. BREE-100020 timeline: Placed ✓ Paid ✓ Processing ✓ Ready To Ship ✓ Cancelled ✓ Refund Completed ✓ — no Shipped / Out For Delivery / Delivered", () => {
+test("3 + 4. BREE-100020 timeline: Placed ✓ Paid ✓ Processing ✓ Ready To Ship ✓ Cancelled ✓ Refund Processed ✓ — no Shipped / Out For Delivery / Delivered", () => {
   renderModal(order());
   expect(timelineSteps()).toEqual([
     ["pending_payment", "done"],
@@ -128,7 +128,7 @@ test("3 + 4. BREE-100020 timeline: Placed ✓ Paid ✓ Processing ✓ Ready To S
     ["refund", "done"],
   ]);
   const timeline = screen.getByTestId("admin-order-timeline");
-  expect(within(timeline).getByText("Refund Completed")).toBeTruthy();
+  expect(within(timeline).getByText("Refund Processed")).toBeTruthy();
   for (const label of ["Shipped", "Out For Delivery", "Delivered"]) {
     expect(within(timeline).queryByText(label)).toBeNull();
   }
@@ -152,12 +152,14 @@ test("timeline is history-driven: an order cancelled before Ready To Ship never 
 
 // ── 5–7. Cancellation / refund panel ───────────────────────────────────
 
-test("5. cancelled + completed refund → 'Order Cancelled & Refunded', no Cancel Order & Refund action", () => {
+test("5. cancelled + completed refund → 'Order Cancelled & Refund Processed', no Cancel Order & Refund action", () => {
   renderModal(order());
   const panel = screen.getByTestId("cancel-refund-panel");
-  expect(within(panel).getByText("Order Cancelled & Refunded")).toBeTruthy();
+  expect(within(panel).getByText("Order Cancelled & Refund Processed")).toBeTruthy();
   expect(within(panel).getByText("Cancelled")).toBeTruthy();
-  expect(within(panel).getByText(/Refund Completed/)).toBeTruthy();
+  // Admin wording matches the customer's: refund_status 'completed' means
+  // Razorpay processed it, not that the bank has credited the customer.
+  expect(within(panel).getAllByText(/Refund Processed/).length).toBeGreaterThan(0);
   expect(within(panel).getByText(/₹1/)).toBeTruthy();
   expect(within(panel).getByText("Refund ID: rfnd_TiHycL2ec5A9vh")).toBeTruthy();
   expect(screen.queryByText("Cancel Order & Refund")).toBeNull();
@@ -169,8 +171,8 @@ test("6. cancelled + initiated refund → 'Order Cancelled' + 'Refund Initiated'
   const panel = screen.getByTestId("cancel-refund-panel");
   expect(within(panel).getByText("Order Cancelled")).toBeTruthy();
   expect(within(panel).getAllByText(/Refund Initiated/).length).toBeGreaterThan(0);
-  expect(within(panel).queryByText(/Refund Completed/)).toBeNull();
-  expect(within(panel).queryByText("Order Cancelled & Refunded")).toBeNull();
+  expect(within(panel).queryByText(/Refund Completed|Refund Processed/)).toBeNull();
+  expect(within(panel).queryByText("Order Cancelled & Refund Processed")).toBeNull();
 });
 
 test("7. cancelled + failed refund → 'Order Cancelled' + 'Refund Failed' with the Retry Refund action", () => {
@@ -241,4 +243,37 @@ test("11. cancelled order WITH a shipment keeps its AWB / tracking info; Cancel 
   expect(screen.getByRole("button", { name: /Cancel Shipment/ }).disabled).toBe(true);
   expect(screen.queryByRole("button", { name: /Schedule Pickup/ })).toBeNull();
   expect(screen.getByTestId("order-status-readonly")).toBeTruthy();
+});
+
+// Admin terminology matches the customer's for refund_status 'completed'
+// (Razorpay processed it; the bank credit may still be pending). The DB
+// value itself is unchanged — this is UI wording only.
+test("completed refund: admin badge, panel and timestamp all say 'Refund Processed'; nothing says Completed or Refunded", () => {
+  // Cancel & Refund panel.
+  const { unmount } = renderModal(order());
+  expect(within(screen.getByTestId("cancel-refund-panel")).getAllByText(/Refund Processed/).length).toBeGreaterThan(0);
+  expect(document.body.textContent).not.toMatch(/Refund Completed|Cancelled & Refunded/);
+  unmount();
+
+  // Return refund section: status badge + "Refund Processed At".
+  renderModal(
+    order({
+      order_status: "delivered",
+      status: "delivered",
+      return_status: "returned",
+      inspection_status: "approved",
+      refund_status: "completed",
+      refund_amount: 1,
+      refund_completed_at: "2026-09-30T14:56:25.000Z",
+    }),
+  );
+  expect(screen.getAllByText("Refund Processed").length).toBeGreaterThan(0);
+  expect(screen.getByText("Refund Processed At")).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(/Refund Completed|Cancelled & Refunded/);
+});
+
+test("order details payment badge shows 'Refund Processed' for payment_status 'refunded', never the raw value", () => {
+  renderModal(order({ payment_status: "refunded" }));
+  expect(screen.getAllByText("Refund Processed").length).toBeGreaterThan(0);
+  expect(screen.queryByText(/^refunded$/i)).toBeNull();
 });

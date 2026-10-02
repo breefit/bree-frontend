@@ -345,3 +345,26 @@ test("same input -> identical timeline (refresh / re-login shows the same author
   const order = receivedByDelhivery({ inspection_status: "pending" });
   expect(buildReturnRefundTimeline({ ...order })).toEqual(buildReturnRefundTimeline(JSON.parse(JSON.stringify(order))));
 });
+
+// Return refund (QC approved → Razorpay refund.processed): customers are told
+// "Refund Processed" — same wording as a Cancel Order & Refund — never
+// "Refund Completed" (the bank credit can still take days).
+test("return refund confirmed by Razorpay is shown to the customer as 'Refund Processed', never 'Refund Completed'", () => {
+  const timeline = buildReturnRefundTimeline({
+    return_status: "returned",
+    return_requested_at: "2026-09-20T10:00:00Z",
+    return_approved_at: "2026-09-20T10:00:00Z",
+    reverse_awb: "RVP1",
+    reverse_shipment_type: "rvp",
+    reverse_tracking_status: "delivered_to_bree",
+    returned_at: "2026-09-23T10:00:00Z",
+    inspection_status: "approved",
+    refund_status: "completed",
+    refund_amount: 499,
+    refund_completed_at: "2026-09-25T08:00:00Z",
+  });
+  const labels = timeline.steps.map((s) => s.label);
+  expect(labels).toContain("Refund Processed");
+  expect(labels).not.toContain("Refund Completed");
+  expect(timeline.steps.find((s) => s.label === "Refund Processed").state).toBe("done");
+});

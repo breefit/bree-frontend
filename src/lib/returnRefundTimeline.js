@@ -16,7 +16,7 @@
 //   Refund Approved       refund_status                     refund_approved_at
 //   Refund Processing     refund_status processing/initiated/completed —
 //   Refund Initiated      refund_status initiated/completed  —
-//   Refund Completed      refund_status = completed         refund_completed_at
+//   Refund Processed      refund_status = completed         refund_completed_at
 //   (Refund Failed        refund_status = failed — failed branch)
 // 'completed' is only ever set from a verified final Razorpay state
 // (refund.processed / status check), never from refund creation.
@@ -271,7 +271,8 @@ export const buildReturnRefundTimeline = (order) => {
     },
     {
       key: "refund_completed",
-      label: "Refund Completed",
+      // Razorpay processed it; the bank credit may still take days.
+      label: "Refund Processed",
       reached: refund_status === "completed",
       timestamp: refund_status === "completed" ? refund_completed_at || null : null,
     },

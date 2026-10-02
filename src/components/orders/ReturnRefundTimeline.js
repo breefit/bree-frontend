@@ -20,7 +20,7 @@ const REFUND_STATUS_LABELS = {
   approved: "Refund Approved",
   processing: "Refund Processing",
   initiated: "Refund Initiated",
-  completed: "Refund Completed",
+  completed: "Refund Processed",
   failed: "Refund Failed",
   rejected: "Refund Rejected",
 };

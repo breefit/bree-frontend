@@ -105,8 +105,8 @@ test("/admin/orders → BREE-100020 (cancelled, refund completed, no shipment): 
 
   // Result panel.
   const panel = screen.getByTestId("cancel-refund-panel");
-  expect(within(panel).getByText("Order Cancelled & Refunded")).toBeTruthy();
-  expect(panel.textContent).toMatch(/Refund:\s*Refund Completed · ₹1/);
+  expect(within(panel).getByText("Order Cancelled & Refund Processed")).toBeTruthy();
+  expect(panel.textContent).toMatch(/Refund:\s*Refund Processed · ₹1/);
   expect(within(panel).queryAllByRole("button")).toHaveLength(0);
 
   // History-driven timeline: no Shipped / Out For Delivery / Delivered.
@@ -126,7 +126,7 @@ test("/admin/orders → BREE-100020 (cancelled, refund completed, no shipment): 
   for (const label of ["Shipped", "Out For Delivery", "Delivered"]) {
     expect(within(timeline).queryByText(label)).toBeNull();
   }
-  expect(within(timeline).getByText("Refund Completed")).toBeTruthy();
+  expect(within(timeline).getByText("Refund Processed")).toBeTruthy();
 
   // Shipment.
   expect(screen.getByText("No shipment was created for this cancelled order.")).toBeTruthy();
@@ -138,7 +138,10 @@ test("/admin/orders → BREE-100020 (cancelled, refund completed, no shipment): 
   expect(screen.getByRole("columnheader", { name: "Order Status" })).toBeTruthy();
   expect(within(row).queryByRole("combobox")).toBeNull();
   expect(within(row).getByText("cancelled")).toBeTruthy();
-  expect(within(row).getByText("refunded")).toBeTruthy();
+  // payment_status 'refunded' (Razorpay processed the refund) is displayed
+  // as "Refund Processed" — the raw value is never shown.
+  expect(within(row).getByText("Refund Processed")).toBeTruthy();
+  expect(within(row).queryByText(/^refunded$/i)).toBeNull();
 
   // Nothing was mutated: only GETs were made.
   expect(mockPost).not.toHaveBeenCalled();
@@ -151,7 +154,7 @@ test("/admin/orders → cancelled + refund initiated: 'Order Cancelled' + 'Refun
   const panel = screen.getByTestId("cancel-refund-panel");
   expect(within(panel).getByText("Order Cancelled")).toBeTruthy();
   expect(panel.textContent).toMatch(/Refund:\s*Refund Initiated/);
-  expect(document.body.textContent).not.toMatch(/Refund Completed|Order Cancelled & Refunded/);
+  expect(document.body.textContent).not.toMatch(/Refund Completed|Refund Processed|Order Cancelled & Refund/);
   expect(document.body.textContent).not.toMatch(/cancel order & refund/i);
 });
 
