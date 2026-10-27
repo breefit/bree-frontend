@@ -22,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import AdminLayout from "@/components/admin/AdminLayout";
+import ReturnStatusCell from "@/components/admin/ReturnStatusCell";
 import axios from "@/lib/api";
 import { toast } from "sonner";
 import useOrdersSync from "@/hooks/useOrdersSync";
@@ -3397,6 +3398,9 @@ const Orders = () => {
                     Order Status
                   </th>
                   <th className="py-3 px-4 text-left text-xs font-semibold text-bree-text-secondary uppercase tracking-wide whitespace-nowrap">
+                    Return Status
+                  </th>
+                  <th className="py-3 px-4 text-left text-xs font-semibold text-bree-text-secondary uppercase tracking-wide whitespace-nowrap">
                     <span className="flex items-center gap-1">
                       Date{" "}
                       <SortBtn
@@ -3417,7 +3421,7 @@ const Orders = () => {
                       key={i}
                       className="border-b border-bree-border animate-pulse"
                     >
-                      {[...Array(12)].map((__, j) => (
+                      {[...Array(13)].map((__, j) => (
                         <td key={j} className="py-4 px-4">
                           <div className="h-3 bg-bree-bg rounded w-full" />
                         </td>
@@ -3426,7 +3430,7 @@ const Orders = () => {
                   ))
                 ) : orders.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-16 text-center">
+                    <td colSpan={13} className="py-16 text-center">
                       <Package className="w-10 h-10 text-bree-border mx-auto mb-3" />
                       <p className="text-bree-text-secondary text-sm">
                         No orders found
@@ -3538,6 +3542,9 @@ const Orders = () => {
                           onChange={handleStatusChange}
                           locked={hasAwbShipment(order)}
                         />
+                      </td>
+                      <td className="py-3 px-4">
+                        <ReturnStatusCell order={order} />
                       </td>
                       <td className="py-3 px-4 text-xs text-bree-text-secondary whitespace-nowrap">
                         {new Date(order.created_at).toLocaleString("en-IN", {

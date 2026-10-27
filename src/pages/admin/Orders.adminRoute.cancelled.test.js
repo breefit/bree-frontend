@@ -58,7 +58,7 @@ const HISTORY = [
 ];
 
 const setupApi = (overrides = {}) => {
-  const listRow = { ...BREE_100020, ...overrides };
+  let listRow = { ...BREE_100020, ...overrides };
   mockGet.mockImplementation((url) => {
     if (/\/api\/admin\/orders\?/.test(url)) {
       return Promise.resolve({ data: { orders: [listRow], total: 1 } });
@@ -68,6 +68,11 @@ const setupApi = (overrides = {}) => {
     }
     return Promise.resolve({ data: {} });
   });
+  return {
+    updateOrder: (updates) => {
+      listRow = { ...listRow, ...updates };
+    },
+  };
 };
 
 const openOrderFromTable = async () => {
@@ -77,7 +82,7 @@ const openOrderFromTable = async () => {
   // The row's own table cell for order status is a static badge.
   const rowButtons = within(row).getAllByRole("button");
   fireEvent.click(rowButtons[rowButtons.length - 1]);
-  await screen.findByTestId("order-status-readonly");
+  await screen.findByTestId("admin-order-timeline");
   return row;
 };
 
@@ -136,11 +141,12 @@ test("/admin/orders → BREE-100020 (cancelled, refund completed, no shipment): 
 
   // Orders table: header + static status badge (no dropdown).
   expect(screen.getByRole("columnheader", { name: "Order Status" })).toBeTruthy();
+  expect(screen.getByRole("columnheader", { name: "Return Status" })).toBeTruthy();
   expect(within(row).queryByRole("combobox")).toBeNull();
   expect(within(row).getByText("cancelled")).toBeTruthy();
-  // payment_status 'refunded' (Razorpay processed the refund) is displayed
-  // as "Refund Processed" — the raw value is never shown.
-  expect(within(row).getByText("Refund Processed")).toBeTruthy();
+  // The payment badge and dedicated return-status column both describe the
+  // processed refund; neither exposes the raw `refunded` payment value.
+  expect(within(row).getAllByText("Refund Processed")).toHaveLength(2);
   expect(within(row).queryByText(/^refunded$/i)).toBeNull();
 
   // Nothing was mutated: only GETs were made.
@@ -176,6 +182,41 @@ test("/admin/orders → cancelled + refund failed: 'Order Cancelled' + 'Refund F
   expect(await screen.findAllByText("Retry Refund")).not.toHaveLength(0);
   expect(document.body.textContent).not.toMatch(/cancel order & refund/i);
   expect(mockPost).not.toHaveBeenCalled();
+});
+
+test("the return-status table cell refreshes after a refund action updates the order", async () => {
+  const { updateOrder } = setupApi({
+    order_status: "delivered",
+    payment_status: "paid",
+    return_status: "returned",
+    inspection_status: "approved",
+    refund_status: "approved",
+    refund_approved_at: "2026-10-01T11:00:00.000Z",
+  });
+  mockPatch.mockImplementation(async () => {
+    updateOrder({
+      refund_status: "initiated",
+      refund_approved_at: "2026-10-01T11:00:00.000Z",
+    });
+    return { data: { message: "Refund initiated" } };
+  });
+
+  const row = await openOrderFromTable();
+  expect(within(row).getByText("Refund Approved")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "Initiate Refund" }));
+  const confirmationButtons = screen.getAllByRole("button", {
+    name: "Initiate Refund",
+  });
+  fireEvent.click(confirmationButtons[confirmationButtons.length - 1]);
+
+  await waitFor(() => {
+    expect(within(row).getByText("Refund Initiated")).toBeTruthy();
+  });
+  expect(mockPatch).toHaveBeenCalledTimes(1);
+  expect(
+    mockGet.mock.calls.filter(([url]) => /\/api\/admin\/orders\?/.test(url)),
+  ).toHaveLength(2);
 });
 
 test("/admin/orders → cancelled but never refunded: 'Refund Payment' (refund-only wording, no cancellation wording)", async () => {

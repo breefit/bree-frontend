@@ -164,7 +164,14 @@ export const buildReturnRefundTimeline = (order) => {
 
   const milestones = [
     { key: "return_requested", label: "Return Requested", reached: true, timestamp: return_requested_at || null },
-    { key: "return_approved", label: "Return Approved", reached: true, timestamp: return_approved_at || null },
+    {
+      key: "return_approved",
+      label: "Return Approved",
+      reached:
+        return_status !== "requested" ||
+        Boolean(return_approved_at),
+      timestamp: return_approved_at || null,
+    },
     {
       key: "reverse_shipment_created",
       label: "Return Shipment Created",
@@ -316,6 +323,53 @@ export const buildReturnRefundTimeline = (order) => {
     refund,
     reverseShipment,
     tracking,
+  };
+};
+
+const REFUND_ONLY_LABELS = {
+  approved: "Refund Approved",
+  processing: "Refund Processing",
+  initiated: "Refund Initiated",
+  completed: "Refund Processed",
+  rejected: "Refund Rejected",
+  failed: "Refund Failed",
+};
+
+/**
+ * Current table-friendly lifecycle status, selected from the same evidenced
+ * steps rendered in the order details timeline. Orders with a refund but no
+ * return timeline (for example, cancelled orders) still show that refund.
+ */
+export const getReturnRefundStatus = (order) => {
+  if (!order) return null;
+
+  const timeline = buildReturnRefundTimeline(order);
+  if (timeline) {
+    const activeStep = [...timeline.steps]
+      .reverse()
+      .find((step) => step.state === "current" || step.state === "failed");
+    const latestCompletedStep =
+      activeStep ||
+      [...timeline.steps].reverse().find((step) => step.state === "done");
+    if (latestCompletedStep) {
+      return {
+        label: latestCompletedStep.label,
+        timestamp: latestCompletedStep.timestamp || null,
+      };
+    }
+  }
+
+  const label = REFUND_ONLY_LABELS[order.refund_status];
+  if (!label) return null;
+
+  return {
+    label,
+    timestamp:
+      order.refund_status === "completed"
+        ? order.refund_completed_at || null
+        : order.refund_status === "approved"
+          ? order.refund_approved_at || null
+          : null,
   };
 };
 
