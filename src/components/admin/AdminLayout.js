@@ -16,9 +16,11 @@ import {
   X,
   Star,
   Menu,
+  User as UserIcon,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const NAV_ITEMS = [
   {
@@ -78,6 +80,72 @@ const NAV_ITEMS = [
 
 const LOGO_URL =
   "https://customer-assets.emergentagent.com/job_bree-daily-ritual/artifacts/9o6pw5yg_a2475dc8-5e69-4671-af95-51ab7af4142f.png";
+
+// Footer identity block. Name/email come from the AdminAuthContext, which is
+// populated only from the DB (GET /api/admin/me on mount, or the login
+// response). A 401 from /me clears that state and ProtectedAdminRoute
+// redirects to /admin/login, so no extra fetch is needed here.
+const SidebarProfile = () => {
+  const { admin, loading } = useAdminAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-3 px-2" aria-busy="true">
+        <Skeleton className="w-10 h-10 rounded-full" />
+        <div className="flex-1 min-w-0 space-y-2">
+          <Skeleton className="h-3.5 w-24" />
+          <Skeleton className="h-3 w-32" />
+        </div>
+      </div>
+    );
+  }
+
+  const name = admin?.name?.trim() || "";
+  const email = admin?.email?.trim() || "";
+
+  if (!name && !email) {
+    // Neutral fallback: no fake identity.
+    return (
+      <div className="flex items-center gap-3 px-2">
+        <Avatar className="w-10 h-10">
+          <AvatarFallback className="bg-bree-accent text-bree-primary">
+            <UserIcon className="w-4 h-4" />
+          </AvatarFallback>
+        </Avatar>
+        <p className="flex-1 min-w-0 text-sm text-bree-text-secondary truncate">
+          Account details unavailable
+        </p>
+      </div>
+    );
+  }
+
+  const initial = (name || email).charAt(0).toUpperCase();
+
+  return (
+    <div className="flex items-center gap-3 px-2">
+      <Avatar className="w-10 h-10">
+        <AvatarFallback className="bg-bree-accent text-bree-primary font-semibold text-sm">
+          {initial}
+        </AvatarFallback>
+      </Avatar>
+
+      <div className="flex-1 min-w-0">
+        <p
+          className="text-sm font-medium text-bree-text-primary truncate"
+          title={name || email}
+        >
+          {name || email}
+        </p>
+
+        {name && email && (
+          <p className="text-xs text-bree-text-secondary truncate" title={email}>
+            {email}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const SidebarContent = ({ onClose }) => {
   const navigate = useNavigate();
@@ -156,23 +224,7 @@ const SidebarContent = ({ onClose }) => {
       {/* Profile + Logout */}
       <div className="px-4 py-4 border-t border-bree-border space-y-3">
         {/* User */}
-        <div className="flex items-center gap-3 px-2">
-          <Avatar className="w-10 h-10">
-            <AvatarFallback className="bg-bree-accent text-bree-primary font-semibold text-sm">
-              A
-            </AvatarFallback>
-          </Avatar>
-
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-bree-text-primary truncate">
-              Admin User
-            </p>
-
-            <p className="text-xs text-bree-text-secondary truncate">
-              admin@bree.fit
-            </p>
-          </div>
-        </div>
+        <SidebarProfile />
 
         {/* Logout */}
         <button

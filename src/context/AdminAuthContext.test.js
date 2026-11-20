@@ -189,3 +189,39 @@ test("ISSUE-008 (admin authentication): a page reload (fresh provider mount) re-
   // "only verify if a token is stored" mount effect would have caused.
   await waitFor(() => expect(screen.getByTestId("admin").textContent).toBe("Test Admin"));
 });
+
+const ErrorConsumer = () => {
+  const auth = useAdminAuth();
+  return (
+    <div>
+      <div data-testid="admin">{auth.admin ? auth.admin.name : "no-admin"}</div>
+      <div data-testid="loading">{String(auth.loading)}</div>
+      <div data-testid="error">{auth.error ? "error" : "no-error"}</div>
+    </div>
+  );
+};
+
+test("admin profile: a 401 from GET /api/admin/me clears auth state and reports no error (guard redirects to login)", async () => {
+  axios.defaults.adapter = meAdapter({ authenticated: false });
+  render(
+    <AdminAuthProvider>
+      <ErrorConsumer />
+    </AdminAuthProvider>,
+  );
+  await waitFor(() => expect(screen.getByTestId("loading").textContent).toBe("false"));
+  expect(screen.getByTestId("admin").textContent).toBe("no-admin");
+  expect(screen.getByTestId("error").textContent).toBe("no-error");
+});
+
+test("admin profile: a 5xx from GET /api/admin/me sets error without inventing an admin", async () => {
+  axios.defaults.adapter = (config) =>
+    Promise.reject({ response: { status: 500, data: {} }, config, isAxiosError: true });
+  render(
+    <AdminAuthProvider>
+      <ErrorConsumer />
+    </AdminAuthProvider>,
+  );
+  await waitFor(() => expect(screen.getByTestId("loading").textContent).toBe("false"));
+  expect(screen.getByTestId("admin").textContent).toBe("no-admin");
+  expect(screen.getByTestId("error").textContent).toBe("error");
+});

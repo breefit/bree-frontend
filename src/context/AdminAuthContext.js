@@ -32,16 +32,32 @@ export const AdminAuthProvider = ({ children }) => {
   }, [admin?.id]);
   const [loading, setLoading] = useState(true);
   const [authenticating, setAuthenticating] = useState(false);
+  // Set when GET /api/admin/me fails for a reason other than "not signed in"
+  // (network error, 5xx). The session is NOT cleared in that case, so a
+  // transient backend error doesn't bounce the admin to the login page.
+  const [error, setError] = useState(null);
 
+  // The admin's identity (id, name, email) always comes from the DB via
+  // GET /api/admin/me or the login response — never from browser storage or
+  // from decoding a JWT client-side.
   const verifyAdmin = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await axios.get("/api/admin/me");
       setAdmin(data.admin || null);
+      setError(null);
       return data.admin || null;
-    } catch (error) {
-      setAdmin(null);
-      clearAdminToken();
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 401 || status === 404) {
+        // Not authenticated, or the admin row no longer exists: clear auth
+        // state. ProtectedAdminRoute then redirects to /admin/login.
+        setAdmin(null);
+        clearAdminToken();
+        setError(null);
+      } else {
+        setError(err);
+      }
       return null;
     } finally {
       setLoading(false);
@@ -69,6 +85,7 @@ export const AdminAuthProvider = ({ children }) => {
         password,
       });
       setAdmin(data.admin || null);
+      setError(null);
       setAdminToken(data.token);
 
       return data.admin;
@@ -88,6 +105,7 @@ export const AdminAuthProvider = ({ children }) => {
       );
     } finally {
       setAdmin(null);
+      setError(null);
       clearAdminToken();
     }
   };
@@ -97,6 +115,7 @@ export const AdminAuthProvider = ({ children }) => {
       value={{
         admin,
         loading,
+        error,
         authenticating,
         loginAdmin,
         logoutAdmin,
